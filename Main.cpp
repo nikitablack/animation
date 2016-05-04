@@ -1,11 +1,12 @@
 #include <Windows.h>
 #include <wrl/client.h>
 #include <stdexcept>
-#include <dxgi1_3.h>
+#include <dxgi1_2.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
 #include <vector>
 #include <DirectXMath.h>
+#include "GeometryUtils.h"
 
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -14,6 +15,11 @@
 using namespace std;
 using namespace Microsoft::WRL;
 using namespace DirectX;
+
+struct ConstantBufferImmutable
+{
+	vector<XMFLOAT4> checkboardColors;
+};
 
 struct ConstantBufferPerFrame
 {
@@ -78,15 +84,10 @@ HWND createWindow(LONG width, LONG height)
 	return hWnd;
 }
 
-ComPtr<IDXGIFactory3> createFactory()
+ComPtr<IDXGIFactory1> createFactory()
 {
-	UINT factoryFlags{ 0 };
-#if _DEBUG
-	factoryFlags = DXGI_CREATE_FACTORY_DEBUG;
-#endif
-
-	ComPtr<IDXGIFactory3> dxgiFactory;
-	if (FAILED(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&dxgiFactory))))
+	ComPtr<IDXGIFactory2> dxgiFactory;
+	if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory))))
 	{
 		throw(runtime_error{ "Error creating IDXGIFactory." });
 	}
@@ -113,7 +114,7 @@ pair<ComPtr<ID3D11Device>, ComPtr<ID3D11DeviceContext>> createDeviceAndContext()
 	return { device, context };
 }
 
-ComPtr<IDXGISwapChain2> createSwapChain(IDXGIFactory3* factory, ID3D11Device* device, HWND hWnd, UINT bufferCount)
+ComPtr<IDXGISwapChain> createSwapChain(IDXGIFactory1* factory, ID3D11Device* device, HWND hWnd, UINT bufferCount)
 {
 	RECT rect;
 	if (!GetWindowRect(hWnd, &rect))
@@ -121,43 +122,27 @@ ComPtr<IDXGISwapChain2> createSwapChain(IDXGIFactory3* factory, ID3D11Device* de
 		throw(runtime_error{ "Error getting window size." });
 	}
 
-	DXGI_SWAP_CHAIN_DESC1 desc;
+	DXGI_SWAP_CHAIN_DESC desc;
 	ZeroMemory(&desc, sizeof(desc));
-	desc.Width = rect.right - rect.left;
-	desc.Height = rect.bottom - rect.top;
-	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	desc.Stereo = FALSE;
+	desc.BufferDesc = { rect.right - rect.left, rect.bottom - rect.top, { 0, 1 }, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED, DXGI_MODE_SCALING_UNSPECIFIED };
 	desc.SampleDesc = { 1, 0 };
 	desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	desc.BufferCount = bufferCount;
-	desc.Scaling = DXGI_SCALING_NONE;
+	desc.OutputWindow = hWnd;
+	desc.Windowed = TRUE;
 	desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-	desc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
 	desc.Flags = 0;
 
-	DXGI_SWAP_CHAIN_FULLSCREEN_DESC fullscreenDesc;
-	ZeroMemory(&fullscreenDesc, sizeof(fullscreenDesc));
-	fullscreenDesc.RefreshRate = { 0, 1 };
-	fullscreenDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-	fullscreenDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
-	fullscreenDesc.Windowed = TRUE;
-
-	ComPtr<IDXGISwapChain1> swapChain1;
-	if (FAILED(factory->CreateSwapChainForHwnd(device, hWnd, &desc, &fullscreenDesc, NULL, swapChain1.ReleaseAndGetAddressOf())))
+	ComPtr<IDXGISwapChain> swapChain;
+	if (FAILED(factory->CreateSwapChain(device, &desc, swapChain.ReleaseAndGetAddressOf())))
 	{
 		throw(runtime_error{ "Error creating swap chain." });
-	}
-
-	ComPtr<IDXGISwapChain2> swapChain;
-	if (FAILED(swapChain1.As(&swapChain)))
-	{
-		throw(runtime_error{ "Error getting swap chain." });
 	}
 	
 	return swapChain;
 }
 
-vector<ComPtr<ID3D11RenderTargetView>> createRenderTargetViews(IDXGISwapChain2* swapChain, ID3D11Device* device, UINT bufferCount)
+vector<ComPtr<ID3D11RenderTargetView>> createRenderTargetViews(IDXGISwapChain* swapChain, ID3D11Device* device, UINT bufferCount)
 {
 	vector<ComPtr<ID3D11RenderTargetView>> renderTargetViews;
 	for (UINT i{ 0 }; i < bufferCount; ++i)
@@ -180,15 +165,15 @@ vector<ComPtr<ID3D11RenderTargetView>> createRenderTargetViews(IDXGISwapChain2* 
 	return renderTargetViews;
 }
 
-pair<ComPtr<ID3D11Texture2D>, ComPtr<ID3D11DepthStencilView>> createDepthStencilPair(IDXGISwapChain2* swapChain, ID3D11Device* device)
+pair<ComPtr<ID3D11Texture2D>, ComPtr<ID3D11DepthStencilView>> createDepthStencilPair(IDXGISwapChain* swapChain, ID3D11Device* device)
 {
-	DXGI_SWAP_CHAIN_DESC1 swapChainDesc;
-	swapChain->GetDesc1(&swapChainDesc);
+	DXGI_SWAP_CHAIN_DESC swapChainDesc;
+	swapChain->GetDesc(&swapChainDesc);
 
 	D3D11_TEXTURE2D_DESC desc;
 	ZeroMemory(&desc, sizeof(desc));
-	desc.Width = swapChainDesc.Width;
-	desc.Height = swapChainDesc.Height;
+	desc.Width = swapChainDesc.BufferDesc.Width;
+	desc.Height = swapChainDesc.BufferDesc.Height;
 	desc.MipLevels = 1;
 	desc.ArraySize = 1;
 	desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
@@ -218,6 +203,31 @@ pair<ComPtr<ID3D11Texture2D>, ComPtr<ID3D11DepthStencilView>> createDepthStencil
 	}
 
 	return { depthStencil, depthStencilView };
+}
+
+ComPtr<ID3D11Buffer> createConstantBufferImmutable(ID3D11Device* device, const ConstantBufferImmutable& data)
+{
+	D3D11_BUFFER_DESC desc;
+	ZeroMemory(&desc, sizeof(desc));
+	desc.ByteWidth = sizeof(data);
+	desc.Usage = D3D11_USAGE_IMMUTABLE;
+	desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	desc.CPUAccessFlags = 0;
+	desc.MiscFlags = 0;
+	desc.StructureByteStride = 0;
+
+	D3D11_SUBRESOURCE_DATA initialData;
+	initialData.pSysMem = data.checkboardColors.data();
+	initialData.SysMemPitch = 0;
+	initialData.SysMemSlicePitch = 0;
+
+	ComPtr<ID3D11Buffer> constBuffer;
+	if (FAILED(device->CreateBuffer(&desc, &initialData, constBuffer.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating constant buffer." });
+	}
+
+	return constBuffer;
 }
 
 ComPtr<ID3D11Buffer> createConstantBufferPerFrame(ID3D11Device* device)
@@ -260,7 +270,60 @@ ComPtr<ID3D11Buffer> createConstantBufferPerObject(ID3D11Device* device)
 	return constBuffer;
 }
 
-void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetView, ID3D11DepthStencilView* depthStencilView, IDXGISwapChain2* swapChain)
+template<typename T>
+ComPtr<ID3D11Buffer> createVertexBuffer(ID3D11Device* device, const vector<T>& data)
+{
+	D3D11_BUFFER_DESC desc;
+	ZeroMemory(&desc, sizeof(desc));
+	desc.Usage = D3D11_USAGE_DEFAULT;
+	desc.ByteWidth = static_cast<UINT>(data.size() * sizeof(T));
+	desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	desc.CPUAccessFlags = 0;
+	desc.MiscFlags = 0;
+	desc.StructureByteStride = 0;
+
+	D3D11_SUBRESOURCE_DATA initialData;
+	initialData.pSysMem = data.data();
+	initialData.SysMemPitch = 0;
+	initialData.SysMemSlicePitch = 0;
+
+	ComPtr<ID3D11Buffer> buffer;
+	if (FAILED(device->CreateBuffer(&desc, &initialData, buffer.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating vertex buffer." });
+	}
+
+	return buffer;
+}
+
+ComPtr<ID3D11Buffer> createIndexBuffer(ID3D11Device* device, const vector<uint32_t>& data)
+{
+	using T = remove_reference<decltype(data)>::type::value_type;
+
+	D3D11_BUFFER_DESC desc;
+	ZeroMemory(&desc, sizeof(desc));
+	desc.Usage = D3D11_USAGE_DEFAULT;
+	desc.ByteWidth = static_cast<UINT>(data.size() * sizeof(T));
+	desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	desc.CPUAccessFlags = 0;
+	desc.MiscFlags = 0;
+	desc.StructureByteStride = 0;
+
+	D3D11_SUBRESOURCE_DATA initialData;
+	initialData.pSysMem = data.data();
+	initialData.SysMemPitch = 0;
+	initialData.SysMemSlicePitch = 0;
+
+	ComPtr<ID3D11Buffer> buffer;
+	if (FAILED(device->CreateBuffer(&desc, &initialData, buffer.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating index buffer." });
+	}
+
+	return buffer;
+}
+
+void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetView, ID3D11DepthStencilView* depthStencilView, IDXGISwapChain* swapChain)
 {
 	static const FLOAT clearColor[]{ 0.0f, 0.5f, 0.0f, 1.0f };
 	context->ClearRenderTargetView(renderTargetView, clearColor);
@@ -278,19 +341,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	const UINT bufferCount{ 2 };
 
 	HWND hWnd;
-	ComPtr<IDXGIFactory3> factory;
+	ComPtr<IDXGIFactory1> factory;
 	ComPtr<IDXGIAdapter2> adapter;
 	ComPtr<ID3D11Device> device;
 	ComPtr<ID3D11DeviceContext> context;
-	ComPtr<IDXGISwapChain2> swapChain;
+	ComPtr<IDXGISwapChain> swapChain;
 	vector<ComPtr<ID3D11RenderTargetView>> renderTargetViews;
 	ComPtr<ID3D11Texture2D> depthStencilTexture;
 	ComPtr<ID3D11DepthStencilView> depthStencilView;
+	ComPtr<ID3D11Buffer> constBufferImmutable;
 	ComPtr<ID3D11Buffer> constBufferPerFrame;
 	ComPtr<ID3D11Buffer> constBufferPerObject;
+	ComPtr<ID3D11Buffer> positionsBuffer;
+	ComPtr<ID3D11Buffer> colorIdsBuffer;
+	ComPtr<ID3D11Buffer> indexBuffer;
 
 	try
 	{
+		CheckboardPlaneMesh planeMesh{ PlaneGeometry::generateCheckBoard(2, 2, 2, 2) };
+		ConstantBufferImmutable consBufferImmutable{ { XMFLOAT4{ 0.5f, 0.5f, 0.5f, 0.5f }, XMFLOAT4{ 0.1f, 0.1f, 0.1f, 0.1f } } };
+
+
 		hWnd = createWindow(width, height);
 		factory = createFactory();
 		auto deviceAndContext = createDeviceAndContext();
@@ -301,8 +372,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		auto depthStencilPair = createDepthStencilPair(swapChain.Get(), device.Get());
 		depthStencilTexture = depthStencilPair.first;
 		depthStencilView = depthStencilPair.second;
+		constBufferImmutable = createConstantBufferImmutable(device.Get(), consBufferImmutable);
 		constBufferPerFrame = createConstantBufferPerFrame(device.Get());
 		constBufferPerObject = createConstantBufferPerObject(device.Get());
+		positionsBuffer = createVertexBuffer(device.Get(), planeMesh.positions);
+		colorIdsBuffer = createVertexBuffer(device.Get(), planeMesh.colorIds);
+		indexBuffer = createIndexBuffer(device.Get(), planeMesh.indices);
 	}
 	catch (runtime_error& err)
 	{
