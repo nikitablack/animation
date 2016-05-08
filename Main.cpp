@@ -18,7 +18,7 @@ using namespace DirectX;
 
 struct ConstantBufferImmutable
 {
-	vector<XMFLOAT4> checkboardColors;
+	XMFLOAT4 checkboardColors[2];
 };
 
 struct ConstantBufferPerFrame
@@ -124,7 +124,7 @@ ComPtr<IDXGISwapChain> createSwapChain(IDXGIFactory1* factory, ID3D11Device* dev
 
 	DXGI_SWAP_CHAIN_DESC desc;
 	ZeroMemory(&desc, sizeof(desc));
-	desc.BufferDesc = { rect.right - rect.left, rect.bottom - rect.top, { 0, 1 }, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED, DXGI_MODE_SCALING_UNSPECIFIED };
+	desc.BufferDesc = { static_cast<UINT>(rect.right - rect.left), static_cast<UINT>(rect.bottom - rect.top), { 0, 1 }, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED, DXGI_MODE_SCALING_UNSPECIFIED };
 	desc.SampleDesc = { 1, 0 };
 	desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	desc.BufferCount = bufferCount;
@@ -217,7 +217,7 @@ ComPtr<ID3D11Buffer> createConstantBufferImmutable(ID3D11Device* device, const C
 	desc.StructureByteStride = 0;
 
 	D3D11_SUBRESOURCE_DATA initialData;
-	initialData.pSysMem = data.checkboardColors.data();
+	initialData.pSysMem = &data;
 	initialData.SysMemPitch = 0;
 	initialData.SysMemSlicePitch = 0;
 
@@ -323,13 +323,68 @@ ComPtr<ID3D11Buffer> createIndexBuffer(ID3D11Device* device, const vector<uint32
 	return buffer;
 }
 
-void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetView, ID3D11DepthStencilView* depthStencilView, IDXGISwapChain* swapChain)
+pair<ComPtr<ID3D11VertexShader>, ComPtr<ID3DBlob>> createVertexShader(ID3D11Device* device)
+{
+	ComPtr<ID3DBlob> shaderBlob;
+	if (FAILED(D3DReadFileToBlob(L"VertexShader.cso", shaderBlob.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error reading vertex shader." });
+	}
+
+	ComPtr<ID3D11VertexShader> vertexShader;
+	if (FAILED(device->CreateVertexShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), nullptr, vertexShader.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating vertex shader." });
+	}
+
+	return { vertexShader, shaderBlob };
+}
+
+ComPtr<ID3D11PixelShader> createPixelShader(ID3D11Device* device)
+{
+	ComPtr<ID3DBlob> shaderBlob;
+	if (FAILED(D3DReadFileToBlob(L"PixelShader.cso", shaderBlob.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error reading pixel shader." });
+	}
+
+	ComPtr<ID3D11PixelShader> pixelShader;
+	if (FAILED(device->CreatePixelShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), nullptr, pixelShader.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating vertex shader." });
+	}
+
+	return pixelShader;
+}
+
+ComPtr<ID3D11InputLayout> createInputLayout(ID3D11Device* device, ID3DBlob* vertexShaderBlob)
+{
+	D3D11_INPUT_ELEMENT_DESC desc[3]{
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 1, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 2, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+	};
+
+	ComPtr<ID3D11InputLayout> inputLayout;
+	if (FAILED(device->CreateInputLayout(desc, 3, vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize(), inputLayout.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating input layout." });
+	}
+
+	return inputLayout;
+}
+
+void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetView, ID3D11DepthStencilView* depthStencilView, IDXGISwapChain* swapChain, ID3D11Buffer* vertexBuffers[3])
 {
 	static const FLOAT clearColor[]{ 0.0f, 0.5f, 0.0f, 1.0f };
 	context->ClearRenderTargetView(renderTargetView, clearColor);
 	context->ClearDepthStencilView(depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	context->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
+
+	UINT strides[3]{ static_cast<UINT>(sizeof(XMFLOAT3)), static_cast<UINT>(sizeof(XMFLOAT3)), static_cast<UINT>(sizeof(uint32_t)) };
+	UINT offsets[3]{ 0, 0, 0 };
+	context->IASetVertexBuffers(0, 3, vertexBuffers, strides, offsets);
 
 	swapChain->Present(0, 0);
 }
@@ -353,14 +408,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	ComPtr<ID3D11Buffer> constBufferPerFrame;
 	ComPtr<ID3D11Buffer> constBufferPerObject;
 	ComPtr<ID3D11Buffer> positionsBuffer;
+	ComPtr<ID3D11Buffer> normalsBuffer;
 	ComPtr<ID3D11Buffer> colorIdsBuffer;
 	ComPtr<ID3D11Buffer> indexBuffer;
+	ComPtr<ID3D11VertexShader> vertexShader;
+	ComPtr<ID3D11PixelShader> pixelShader;
+	ComPtr<ID3D11InputLayout> inputLayout;
 
 	try
 	{
 		CheckboardPlaneMesh planeMesh{ PlaneGeometry::generateCheckBoard(2, 2, 2, 2) };
 		ConstantBufferImmutable consBufferImmutable{ { XMFLOAT4{ 0.5f, 0.5f, 0.5f, 0.5f }, XMFLOAT4{ 0.1f, 0.1f, 0.1f, 0.1f } } };
-
 
 		hWnd = createWindow(width, height);
 		factory = createFactory();
@@ -376,8 +434,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		constBufferPerFrame = createConstantBufferPerFrame(device.Get());
 		constBufferPerObject = createConstantBufferPerObject(device.Get());
 		positionsBuffer = createVertexBuffer(device.Get(), planeMesh.positions);
+		normalsBuffer = createVertexBuffer(device.Get(), planeMesh.normals);
 		colorIdsBuffer = createVertexBuffer(device.Get(), planeMesh.colorIds);
 		indexBuffer = createIndexBuffer(device.Get(), planeMesh.indices);
+		auto vertexShaderPair = createVertexShader(device.Get());
+		vertexShader = vertexShaderPair.first;
+		pixelShader = createPixelShader(device.Get());
+		inputLayout = createInputLayout(device.Get(), vertexShaderPair.second.Get());
 	}
 	catch (runtime_error& err)
 	{
@@ -397,7 +460,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 			{
 				UINT presentCount;
 				swapChain->GetLastPresentCount(&presentCount);
-				render(context.Get(), renderTargetViews[presentCount % bufferCount].Get(), depthStencilView.Get(), swapChain.Get());
+
+				ID3D11Buffer* vertexBuffers[3]{ positionsBuffer.Get(), normalsBuffer.Get(), colorIdsBuffer.Get() };
+				render(context.Get(), renderTargetViews[presentCount % bufferCount].Get(), depthStencilView.Get(), swapChain.Get(), vertexBuffers);
 			}
 			catch (runtime_error& err)
 			{

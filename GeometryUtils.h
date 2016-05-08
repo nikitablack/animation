@@ -6,6 +6,7 @@
 struct CheckboardPlaneMesh
 {
 	std::vector<DirectX::XMFLOAT3> positions;
+	std::vector<DirectX::XMFLOAT3> normals;
 	std::vector<uint32_t> colorIds;
 	std::vector<uint32_t> indices;
 };
@@ -41,6 +42,11 @@ public:
 				mesh.positions.push_back(p2);
 				mesh.positions.push_back(p3);
 				mesh.positions.push_back(p4);
+
+				mesh.normals.emplace_back(0.0f, 1.0f, 0.0f);
+				mesh.normals.emplace_back(0.0f, 1.0f, 0.0f);
+				mesh.normals.emplace_back(0.0f, 1.0f, 0.0f);
+				mesh.normals.emplace_back(0.0f, 1.0f, 0.0f);
 
 				uint32_t colorId{ static_cast<uint32_t>(((j % 2) == (i % 2)) ? 0 : 1) };
 				mesh.colorIds.push_back(colorId);
