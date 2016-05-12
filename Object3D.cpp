@@ -20,7 +20,7 @@ Object3D::Object3D(ComPtr<ID3D11Device> device, shared_ptr<MeshBase> mesh, share
 
 	vector<D3D11_INPUT_ELEMENT_DESC> descs;
 
-	for (int i{ 0 }; i < typeids.size(); ++i)
+	for (UINT i{ 0 }; i < typeids.size(); ++i)
 	{
 		auto dxgiFormatIt = dxgiFormatByType.find(typeids[i]);
 		if (dxgiFormatIt == dxgiFormatByType.end())

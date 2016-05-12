@@ -1,8 +1,8 @@
 #include <Windows.h>
 #include <dxgi1_2.h>
 #include "GeometryUtils.h"
-
 #include "Object3D.h"
+#include "MeshAsciiParser.h"
 
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -372,6 +372,8 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
+	MeshAsciiParser::parse("Kitana.mesh.ascii");
+
 	const LONG width{ 1280 };
 	const LONG height{ 1024 };
 	const UINT bufferCount{ 2 };
