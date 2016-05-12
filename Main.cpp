@@ -1,12 +1,8 @@
 #include <Windows.h>
-#include <wrl/client.h>
-#include <stdexcept>
 #include <dxgi1_2.h>
-#include <d3d11.h>
-#include <d3dcompiler.h>
-#include <vector>
-#include <DirectXMath.h>
 #include "GeometryUtils.h"
+
+#include "Object3D.h"
 
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -21,10 +17,14 @@ struct ConstantBufferImmutable
 	XMFLOAT4 checkboardColors[2];
 };
 
+struct ConstantBufferProjectionMatrix
+{
+	XMFLOAT4X4 projMat;
+};
+
 struct ConstantBufferPerFrame
 {
 	XMFLOAT4X4 viewMat;
-	XMFLOAT4X4 projMat;
 	float timePassed;
 	char padding[12];
 };
@@ -111,20 +111,20 @@ pair<ComPtr<ID3D11Device>, ComPtr<ID3D11DeviceContext>> createDeviceAndContext()
 		throw(runtime_error{ "Error creating device and context." });
 	}
 
-	return { device, context };
+	return{ device, context };
 }
 
 ComPtr<IDXGISwapChain> createSwapChain(IDXGIFactory1* factory, ID3D11Device* device, HWND hWnd, UINT bufferCount)
 {
 	RECT rect;
-	if (!GetWindowRect(hWnd, &rect))
+	if (!GetClientRect(hWnd, &rect))
 	{
 		throw(runtime_error{ "Error getting window size." });
 	}
 
 	DXGI_SWAP_CHAIN_DESC desc;
 	ZeroMemory(&desc, sizeof(desc));
-	desc.BufferDesc = { static_cast<UINT>(rect.right - rect.left), static_cast<UINT>(rect.bottom - rect.top), { 0, 1 }, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED, DXGI_MODE_SCALING_UNSPECIFIED };
+	desc.BufferDesc = { static_cast<UINT>(rect.right - rect.left), static_cast<UINT>(rect.bottom - rect.top), { 0, 1 }, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED, DXGI_MODE_SCALING_CENTERED };
 	desc.SampleDesc = { 1, 0 };
 	desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	desc.BufferCount = bufferCount;
@@ -138,7 +138,7 @@ ComPtr<IDXGISwapChain> createSwapChain(IDXGIFactory1* factory, ID3D11Device* dev
 	{
 		throw(runtime_error{ "Error creating swap chain." });
 	}
-	
+
 	return swapChain;
 }
 
@@ -202,7 +202,7 @@ pair<ComPtr<ID3D11Texture2D>, ComPtr<ID3D11DepthStencilView>> createDepthStencil
 		throw(runtime_error{ "Error creating depth stencil view." });
 	}
 
-	return { depthStencil, depthStencilView };
+	return{ depthStencil, depthStencilView };
 }
 
 ComPtr<ID3D11Buffer> createConstantBufferImmutable(ID3D11Device* device, const ConstantBufferImmutable& data)
@@ -213,6 +213,31 @@ ComPtr<ID3D11Buffer> createConstantBufferImmutable(ID3D11Device* device, const C
 	desc.Usage = D3D11_USAGE_IMMUTABLE;
 	desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 	desc.CPUAccessFlags = 0;
+	desc.MiscFlags = 0;
+	desc.StructureByteStride = 0;
+
+	D3D11_SUBRESOURCE_DATA initialData;
+	initialData.pSysMem = &data;
+	initialData.SysMemPitch = 0;
+	initialData.SysMemSlicePitch = 0;
+
+	ComPtr<ID3D11Buffer> constBuffer;
+	if (FAILED(device->CreateBuffer(&desc, &initialData, constBuffer.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating constant buffer." });
+	}
+
+	return constBuffer;
+}
+
+ComPtr<ID3D11Buffer> createConstantBufferProjectionMatrix(ID3D11Device* device, const ConstantBufferProjectionMatrix& data)
+{
+	D3D11_BUFFER_DESC desc;
+	ZeroMemory(&desc, sizeof(desc));
+	desc.ByteWidth = sizeof(data);
+	desc.Usage = D3D11_USAGE_DYNAMIC;
+	desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 	desc.MiscFlags = 0;
 	desc.StructureByteStride = 0;
 
@@ -270,130 +295,94 @@ ComPtr<ID3D11Buffer> createConstantBufferPerObject(ID3D11Device* device)
 	return constBuffer;
 }
 
-template<typename T>
-ComPtr<ID3D11Buffer> createVertexBuffer(ID3D11Device* device, const vector<T>& data)
-{
-	D3D11_BUFFER_DESC desc;
-	ZeroMemory(&desc, sizeof(desc));
-	desc.Usage = D3D11_USAGE_DEFAULT;
-	desc.ByteWidth = static_cast<UINT>(data.size() * sizeof(T));
-	desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-	desc.CPUAccessFlags = 0;
-	desc.MiscFlags = 0;
-	desc.StructureByteStride = 0;
-
-	D3D11_SUBRESOURCE_DATA initialData;
-	initialData.pSysMem = data.data();
-	initialData.SysMemPitch = 0;
-	initialData.SysMemSlicePitch = 0;
-
-	ComPtr<ID3D11Buffer> buffer;
-	if (FAILED(device->CreateBuffer(&desc, &initialData, buffer.ReleaseAndGetAddressOf())))
-	{
-		throw(runtime_error{ "Error creating vertex buffer." });
-	}
-
-	return buffer;
-}
-
-ComPtr<ID3D11Buffer> createIndexBuffer(ID3D11Device* device, const vector<uint32_t>& data)
-{
-	using T = remove_reference<decltype(data)>::type::value_type;
-
-	D3D11_BUFFER_DESC desc;
-	ZeroMemory(&desc, sizeof(desc));
-	desc.Usage = D3D11_USAGE_DEFAULT;
-	desc.ByteWidth = static_cast<UINT>(data.size() * sizeof(T));
-	desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
-	desc.CPUAccessFlags = 0;
-	desc.MiscFlags = 0;
-	desc.StructureByteStride = 0;
-
-	D3D11_SUBRESOURCE_DATA initialData;
-	initialData.pSysMem = data.data();
-	initialData.SysMemPitch = 0;
-	initialData.SysMemSlicePitch = 0;
-
-	ComPtr<ID3D11Buffer> buffer;
-	if (FAILED(device->CreateBuffer(&desc, &initialData, buffer.ReleaseAndGetAddressOf())))
-	{
-		throw(runtime_error{ "Error creating index buffer." });
-	}
-
-	return buffer;
-}
-
-pair<ComPtr<ID3D11VertexShader>, ComPtr<ID3DBlob>> createVertexShader(ID3D11Device* device)
-{
-	ComPtr<ID3DBlob> shaderBlob;
-	if (FAILED(D3DReadFileToBlob(L"VertexShader.cso", shaderBlob.ReleaseAndGetAddressOf())))
-	{
-		throw(runtime_error{ "Error reading vertex shader." });
-	}
-
-	ComPtr<ID3D11VertexShader> vertexShader;
-	if (FAILED(device->CreateVertexShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), nullptr, vertexShader.ReleaseAndGetAddressOf())))
-	{
-		throw(runtime_error{ "Error creating vertex shader." });
-	}
-
-	return { vertexShader, shaderBlob };
-}
-
-ComPtr<ID3D11PixelShader> createPixelShader(ID3D11Device* device)
-{
-	ComPtr<ID3DBlob> shaderBlob;
-	if (FAILED(D3DReadFileToBlob(L"PixelShader.cso", shaderBlob.ReleaseAndGetAddressOf())))
-	{
-		throw(runtime_error{ "Error reading pixel shader." });
-	}
-
-	ComPtr<ID3D11PixelShader> pixelShader;
-	if (FAILED(device->CreatePixelShader(shaderBlob->GetBufferPointer(), shaderBlob->GetBufferSize(), nullptr, pixelShader.ReleaseAndGetAddressOf())))
-	{
-		throw(runtime_error{ "Error creating vertex shader." });
-	}
-
-	return pixelShader;
-}
-
-ComPtr<ID3D11InputLayout> createInputLayout(ID3D11Device* device, ID3DBlob* vertexShaderBlob)
-{
-	D3D11_INPUT_ELEMENT_DESC desc[3]{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 1, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 2, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 }
-	};
-
-	ComPtr<ID3D11InputLayout> inputLayout;
-	if (FAILED(device->CreateInputLayout(desc, 3, vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize(), inputLayout.ReleaseAndGetAddressOf())))
-	{
-		throw(runtime_error{ "Error creating input layout." });
-	}
-
-	return inputLayout;
-}
-
-void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetView, ID3D11DepthStencilView* depthStencilView, IDXGISwapChain* swapChain, ID3D11Buffer* vertexBuffers[3])
+void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetView, ID3D11DepthStencilView* depthStencilView, IDXGISwapChain* swapChain, D3D11_VIEWPORT* viewport,
+	ID3D11Buffer* constantBuffers[4], vector<shared_ptr<Object3D>> objects)
 {
 	static const FLOAT clearColor[]{ 0.0f, 0.5f, 0.0f, 1.0f };
 	context->ClearRenderTargetView(renderTargetView, clearColor);
 	context->ClearDepthStencilView(depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	context->OMSetRenderTargets(1, &renderTargetView, depthStencilView);
+	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	context->RSSetViewports(1, viewport);
 
-	UINT strides[3]{ static_cast<UINT>(sizeof(XMFLOAT3)), static_cast<UINT>(sizeof(XMFLOAT3)), static_cast<UINT>(sizeof(uint32_t)) };
-	UINT offsets[3]{ 0, 0, 0 };
-	context->IASetVertexBuffers(0, 3, vertexBuffers, strides, offsets);
+	/////////////////////////// constant buffer per frame /////////////////
+	D3D11_MAPPED_SUBRESOURCE mappedResource;
+	if (FAILED(context->Map(constantBuffers[2], 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource)))
+	{
+		throw(runtime_error{ "Error mapping constant buffer" });
+	}
+
+	ConstantBufferPerFrame* cbPerFrameDataPtr{ static_cast<ConstantBufferPerFrame*>(mappedResource.pData) };
+
+	XMVECTOR vecCamPosition(XMVectorSet(0.0f, 1.0f, -2.0f, 0));
+	XMVECTOR vecCamLookAt(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f));
+	XMVECTOR vecCamUp(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f));
+	XMMATRIX matrixView(XMMatrixLookAtLH(vecCamPosition, vecCamLookAt, vecCamUp));
+	XMMATRIX matrixProjection(XMMatrixPerspectiveFovLH(XMConvertToRadians(45), 800 / 600, 1.0f, 100.0f));
+
+	ConstantBufferPerFrame cbPerFrame;
+	XMStoreFloat4x4(&cbPerFrame.viewMat, XMMatrixTranspose(matrixView));
+	cbPerFrame.timePassed = 0;
+
+	cbPerFrameDataPtr->viewMat = cbPerFrame.viewMat;
+	cbPerFrameDataPtr->timePassed = cbPerFrame.timePassed;
+
+	context->Unmap(constantBuffers[2], 0);
+	////////////////////////////////////////////////////////////////////////
+
+	/////////////////////////// constant buffer per object /////////////////
+	if (FAILED(context->Map(constantBuffers[3], 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource)))
+	{
+		throw(runtime_error{ "Error mapping constant buffer" });
+	}
+
+	ConstantBufferPerObject* cbPerObjDataPtr{ static_cast<ConstantBufferPerObject*>(mappedResource.pData) };
+
+	XMMATRIX matrixObj(XMMatrixIdentity());
+
+	ConstantBufferPerObject cbPerObject;
+	XMStoreFloat4x4(&cbPerObject.wvpMat, XMMatrixTranspose(matrixObj * matrixView * matrixProjection));
+
+	cbPerObjDataPtr->wvpMat = cbPerObject.wvpMat;
+
+	context->Unmap(constantBuffers[3], 0);
+	////////////////////////////////////////////////////////////////////////
+
+	context->VSSetConstantBuffers(0, 4, constantBuffers);
+
+	for (shared_ptr<Object3D>& obj : objects)
+	{
+		const vector<ID3D11Buffer*>& vertexBuffers{ obj->getVertexBuffers() };
+
+		context->IASetVertexBuffers(0, static_cast<UINT>(vertexBuffers.size()), vertexBuffers.data(), obj->getVertexStrides().data(), obj->getVertexOffsets().data());
+
+		context->IASetIndexBuffer(obj->getIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
+
+		context->IASetInputLayout(obj->getInputLayout());
+		context->VSSetShader(obj->getVertexShader(), nullptr, 0);
+		context->PSSetShader(obj->getPixelShader(), nullptr, 0);
+		context->RSSetState(obj->getRasterizerState());
+
+		context->DrawIndexed(obj->getNumIndices(), 0, 0);
+	}
 
 	swapChain->Present(0, 0);
 }
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
-	const LONG width{ 800 };
-	const LONG height{ 600 };
+	const LONG width{ 1280 };
+	const LONG height{ 1024 };
 	const UINT bufferCount{ 2 };
+
+	D3D11_VIEWPORT viewport;
+	viewport.TopLeftX = 0;
+	viewport.TopLeftY = 0;
+	viewport.Width = width;
+	viewport.Height = height;
+	viewport.MinDepth = 0.0f;
+	viewport.MaxDepth = 1.0f;
 
 	HWND hWnd;
 	ComPtr<IDXGIFactory1> factory;
@@ -404,21 +393,24 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	vector<ComPtr<ID3D11RenderTargetView>> renderTargetViews;
 	ComPtr<ID3D11Texture2D> depthStencilTexture;
 	ComPtr<ID3D11DepthStencilView> depthStencilView;
+
 	ComPtr<ID3D11Buffer> constBufferImmutable;
+	ComPtr<ID3D11Buffer> constBufferProjectionMatrix;
 	ComPtr<ID3D11Buffer> constBufferPerFrame;
 	ComPtr<ID3D11Buffer> constBufferPerObject;
-	ComPtr<ID3D11Buffer> positionsBuffer;
-	ComPtr<ID3D11Buffer> normalsBuffer;
-	ComPtr<ID3D11Buffer> colorIdsBuffer;
-	ComPtr<ID3D11Buffer> indexBuffer;
-	ComPtr<ID3D11VertexShader> vertexShader;
-	ComPtr<ID3D11PixelShader> pixelShader;
-	ComPtr<ID3D11InputLayout> inputLayout;
+
+	shared_ptr<Object3D> plane;
+	shared_ptr<Object3D> bone;
+	vector<shared_ptr<Object3D>> objects;
 
 	try
 	{
-		CheckboardPlaneMesh planeMesh{ PlaneGeometry::generateCheckBoard(2, 2, 2, 2) };
-		ConstantBufferImmutable consBufferImmutable{ { XMFLOAT4{ 0.5f, 0.5f, 0.5f, 0.5f }, XMFLOAT4{ 0.1f, 0.1f, 0.1f, 0.1f } } };
+		ConstantBufferImmutable cbImmutable{ { XMFLOAT4{ 0.8f, 0.8f, 0.8f, 1.0f }, XMFLOAT4{ 0.5f, 0.5f, 0.5f, 1.0f } } };
+		ConstantBufferProjectionMatrix cbProjectionMatrix;
+		XMStoreFloat4x4(&cbProjectionMatrix.projMat, XMMatrixTranspose(XMMatrixPerspectiveFovLH(XMConvertToRadians(45), width / height, 1.0f, 100.0f)));
+
+		CheckboardPlaneMesh checkboardPlaneMesh{ GeometryGenerator::generateCheckBoard(10.0f, 10.0f, 100, 100) };
+		BoneArmatureMesh boneArmatureMesh{ GeometryGenerator::generateBone(0.5f) };
 
 		hWnd = createWindow(width, height);
 		factory = createFactory();
@@ -430,17 +422,35 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		auto depthStencilPair = createDepthStencilPair(swapChain.Get(), device.Get());
 		depthStencilTexture = depthStencilPair.first;
 		depthStencilView = depthStencilPair.second;
-		constBufferImmutable = createConstantBufferImmutable(device.Get(), consBufferImmutable);
+
+		constBufferImmutable = createConstantBufferImmutable(device.Get(), cbImmutable);
+		constBufferProjectionMatrix = createConstantBufferProjectionMatrix(device.Get(), cbProjectionMatrix);
 		constBufferPerFrame = createConstantBufferPerFrame(device.Get());
 		constBufferPerObject = createConstantBufferPerObject(device.Get());
-		positionsBuffer = createVertexBuffer(device.Get(), planeMesh.positions);
-		normalsBuffer = createVertexBuffer(device.Get(), planeMesh.normals);
-		colorIdsBuffer = createVertexBuffer(device.Get(), planeMesh.colorIds);
-		indexBuffer = createIndexBuffer(device.Get(), planeMesh.indices);
-		auto vertexShaderPair = createVertexShader(device.Get());
-		vertexShader = vertexShaderPair.first;
-		pixelShader = createPixelShader(device.Get());
-		inputLayout = createInputLayout(device.Get(), vertexShaderPair.second.Get());
+
+		// plane
+		pair<vector<XMFLOAT3>, string> p1{ checkboardPlaneMesh.positions, "POSITION" };
+		pair<vector<XMFLOAT3>, string> p2{ checkboardPlaneMesh.normals, "NORMAL" };
+		pair<vector<uint32_t>, string> p3{ checkboardPlaneMesh.colorIds, "COLOR_ID" };
+		auto pt = make_tuple(p1, p2, p3);
+		shared_ptr<VertexBufferData<XMFLOAT3, XMFLOAT3, uint32_t>> planeVertexBufferData{ make_shared<VertexBufferData<XMFLOAT3, XMFLOAT3, uint32_t>>(device, pt) };
+		shared_ptr<Mesh<XMFLOAT3, XMFLOAT3, uint32_t>> planeMesh{ make_shared<Mesh<XMFLOAT3, XMFLOAT3, uint32_t>>(device, planeVertexBufferData, checkboardPlaneMesh.indices) };
+		shared_ptr<ShaderData<ID3D11VertexShader>> planeVertexShaderData{ make_shared<ShaderData<ID3D11VertexShader>>(device, L"PlaneVertexShader.cso") };
+		shared_ptr<ShaderData<ID3D11PixelShader>> planePixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"PlanePixelShader.cso") };
+		plane = make_shared<Object3D>(device, planeMesh, planeVertexShaderData, planePixelShaderData);
+
+		objects.push_back(plane);
+		
+		// bone
+		pair<vector<XMFLOAT3>, string> b1{ boneArmatureMesh.positions, "POSITION" };
+		auto bt = make_tuple(b1);
+		shared_ptr<VertexBufferData<XMFLOAT3>> boneVertexBufferData{ make_shared<VertexBufferData<XMFLOAT3>>(device, bt) };
+		shared_ptr<Mesh<XMFLOAT3>> boneMesh{ make_shared<Mesh<XMFLOAT3>>(device, boneVertexBufferData, boneArmatureMesh.indices) };
+		shared_ptr<ShaderData<ID3D11VertexShader>> boneVertexShaderData{ make_shared<ShaderData<ID3D11VertexShader>>(device, L"BoneVertexShader.cso") };
+		shared_ptr<ShaderData<ID3D11PixelShader>> bonePixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"BonePixelShader.cso") };
+		bone = make_shared<Object3D>(device, boneMesh, boneVertexShaderData, bonePixelShaderData, true, false);
+
+		objects.push_back(bone);
 	}
 	catch (runtime_error& err)
 	{
@@ -461,8 +471,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 				UINT presentCount;
 				swapChain->GetLastPresentCount(&presentCount);
 
-				ID3D11Buffer* vertexBuffers[3]{ positionsBuffer.Get(), normalsBuffer.Get(), colorIdsBuffer.Get() };
-				render(context.Get(), renderTargetViews[presentCount % bufferCount].Get(), depthStencilView.Get(), swapChain.Get(), vertexBuffers);
+				ID3D11Buffer* constantBuffers[4]{ constBufferImmutable.Get(), constBufferProjectionMatrix.Get(), constBufferPerFrame.Get(), constBufferPerObject.Get() };
+
+				render(context.Get(), renderTargetViews[presentCount % bufferCount].Get(), depthStencilView.Get(), swapChain.Get(), &viewport,
+					constantBuffers, objects);
 			}
 			catch (runtime_error& err)
 			{
