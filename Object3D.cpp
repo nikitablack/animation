@@ -9,6 +9,7 @@ namespace
 {
 	static const std::unordered_map<std::string, DXGI_FORMAT> dxgiFormatByType{
 		{ typeid(DirectX::XMFLOAT3).name(), DXGI_FORMAT_R32G32B32_FLOAT },
+		{ typeid(DirectX::XMINT3).name(), DXGI_FORMAT_R32G32B32A32_SINT },
 		{ typeid(uint32_t).name(), DXGI_FORMAT_R32_UINT }
 	};
 }

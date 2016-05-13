@@ -12,6 +12,10 @@ using namespace std;
 using namespace Microsoft::WRL;
 using namespace DirectX;
 
+const float CAMERA_STEP{ 0.1f };
+float cameraX{ 0.0f };
+float cameraY{ 1.0f };
+
 struct ConstantBufferImmutable
 {
 	XMFLOAT4 checkboardColors[2];
@@ -40,6 +44,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	{
 	case WM_DESTROY:
 		PostQuitMessage(0);
+		break;
+	case WM_KEYDOWN:
+		switch (wParam)
+		{
+		case 65:
+			cameraX -= CAMERA_STEP;
+			break;
+		case 87:
+			cameraY += CAMERA_STEP;
+			break;
+		case 68:
+			cameraX += CAMERA_STEP;
+			break;
+		case 83:
+			cameraY -= CAMERA_STEP;
+			break;
+		}
 		break;
 
 	default:
@@ -315,9 +336,9 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 
 	ConstantBufferPerFrame* cbPerFrameDataPtr{ static_cast<ConstantBufferPerFrame*>(mappedResource.pData) };
 
-	XMVECTOR vecCamPosition(XMVectorSet(0.0f, 1.0f, -2.0f, 0));
-	XMVECTOR vecCamLookAt(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f));
-	XMVECTOR vecCamUp(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f));
+	XMVECTOR vecCamPosition(XMVectorSet(cameraX, cameraY, -3.0f, 0.0f));
+	XMVECTOR vecCamLookAt(XMVectorSet(0.0f, 1.0f, 1.0f, 0.0f));
+	XMVECTOR vecCamUp(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
 	XMMATRIX matrixView(XMMatrixLookAtLH(vecCamPosition, vecCamLookAt, vecCamUp));
 	XMMATRIX matrixProjection(XMMatrixPerspectiveFovLH(XMConvertToRadians(45), 800 / 600, 1.0f, 100.0f));
 
@@ -370,9 +391,60 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 	swapChain->Present(0, 0);
 }
 
+vector<shared_ptr<Object3D>> createKitana(ComPtr<ID3D11Device> device)
+{
+	vector<shared_ptr<Object3D>> kitana;
+
+	vector<vector<Vertex>> meshes;
+	vector<vector<uint32_t>> faces;
+	MeshAsciiParser::read("kitana", meshes, faces);
+
+	for (int i{ 0 }; i < meshes.size(); ++i)
+	{
+		vector<Vertex> meshData{ meshes[i] };
+		vector<XMFLOAT3> vertices;
+		vector<XMFLOAT3> normals;
+		vector<XMINT3> bones;
+		vector<XMFLOAT3> bonesWeights;
+		for (auto& vertex : meshData)
+		{
+			vertices.push_back(vertex.pos);
+			normals.push_back(vertex.normal);
+			bones.push_back(vertex.bones);
+			bonesWeights.push_back(vertex.bonesWeights);
+		}
+
+		vector<uint32_t> face{ faces[i] };
+		vector<uint32_t> indices;
+		for (uint32_t ind : face)
+		{
+			indices.push_back(ind);
+		}
+
+		pair<vector<XMFLOAT3>, string> p1{ vertices, "POSITION" };
+		pair<vector<XMFLOAT3>, string> p2{ normals, "NORMAL" };
+		pair<vector<XMINT3>, string> p3{ bones, "BONE" };
+		pair<vector<XMFLOAT3>, string> p4{ normals, "BONE_WEIGHT" };
+		auto t = make_tuple(p1, p2, p3, p4);
+		shared_ptr<VertexBufferData<XMFLOAT3, XMFLOAT3, XMINT3, XMFLOAT3>> vertexBufferData{ make_shared<VertexBufferData<XMFLOAT3, XMFLOAT3, XMINT3, XMFLOAT3>>(device, t) };
+		shared_ptr<Mesh<XMFLOAT3, XMFLOAT3, XMINT3, XMFLOAT3>> mesh{ make_shared<Mesh<XMFLOAT3, XMFLOAT3, XMINT3, XMFLOAT3>>(device, vertexBufferData, indices) };
+		shared_ptr<ShaderData<ID3D11VertexShader>> vertexShaderData{ make_shared<ShaderData<ID3D11VertexShader>>(device, L"BoneVertexShader.cso") };
+		shared_ptr<ShaderData<ID3D11PixelShader>> pixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"BonePixelShader.cso") };
+		shared_ptr<Object3D> obj{ make_shared<Object3D>(device, mesh, vertexShaderData, pixelShaderData, true, false) };
+
+		if (i == 6 || i == 16 || i == 17 || i == 18 || i == 21 || i == 23 || i == 24 || i == 25 || i == 27)
+		{
+			kitana.push_back(obj);
+		}
+	}
+	
+	return kitana;
+}
+
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
-	MeshAsciiParser::parse("Kitana.mesh.ascii");
+	//MeshAsciiParser::parse("Kitana.mesh.ascii");
+	//return 0;
 
 	const LONG width{ 1280 };
 	const LONG height{ 1024 };
@@ -403,6 +475,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 
 	shared_ptr<Object3D> plane;
 	shared_ptr<Object3D> bone;
+	shared_ptr<Object3D> kitana;
 	vector<shared_ptr<Object3D>> objects;
 
 	try
@@ -441,7 +514,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		shared_ptr<ShaderData<ID3D11PixelShader>> planePixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"PlanePixelShader.cso") };
 		plane = make_shared<Object3D>(device, planeMesh, planeVertexShaderData, planePixelShaderData);
 
-		objects.push_back(plane);
+		//objects.push_back(plane);
 		
 		// bone
 		pair<vector<XMFLOAT3>, string> b1{ boneArmatureMesh.positions, "POSITION" };
@@ -452,7 +525,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		shared_ptr<ShaderData<ID3D11PixelShader>> bonePixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"BonePixelShader.cso") };
 		bone = make_shared<Object3D>(device, boneMesh, boneVertexShaderData, bonePixelShaderData, true, false);
 
-		objects.push_back(bone);
+		//objects.push_back(bone);
+
+		// kitana
+		objects = createKitana(device);
 	}
 	catch (runtime_error& err)
 	{
