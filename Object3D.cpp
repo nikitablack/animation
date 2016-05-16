@@ -1,4 +1,4 @@
-#include "Object3D.h"
+#include "Headers\Object3D.h"
 #include <unordered_map>
 
 using namespace std;
@@ -42,7 +42,7 @@ Object3D::Object3D(ComPtr<ID3D11Device> device, shared_ptr<MeshBase> mesh, share
 	ZeroMemory(&desc, sizeof(desc));
 	desc.FillMode = wireframe ? D3D11_FILL_WIREFRAME : D3D11_FILL_SOLID;
 	desc.CullMode = backCulling ? D3D11_CULL_BACK : D3D11_CULL_NONE;
-	desc.FrontCounterClockwise = FALSE;
+	desc.FrontCounterClockwise = TRUE;
 	desc.DepthBias = 0;
 	desc.DepthBiasClamp = 0.0f;
 	desc.SlopeScaledDepthBias = 0.0f;
@@ -113,7 +113,7 @@ void Object3D::setPosition(float x, float y, float z)
 	posInverse._32 = -y;
 	posInverse._33 = -z;
 
-	updated = true;
+	dirty = true;
 }
 
 void Object3D::setRotation(float x, float y, float z)
@@ -121,7 +121,7 @@ void Object3D::setRotation(float x, float y, float z)
 	XMStoreFloat3x3(&rot, XMMatrixRotationRollPitchYaw(x, y, z));
 	XMStoreFloat3x3(&rotInverse, XMMatrixRotationRollPitchYaw(-x, -y, -z));
 
-	updated = true;
+	dirty = true;
 }
 
 void Object3D::setScale(float x, float y, float z)
@@ -134,18 +134,62 @@ void Object3D::setScale(float x, float y, float z)
 	scaleInverse._22 = y != 0 ? 1 / y : 0;
 	scaleInverse._33 = z != 0 ? 1 / z : 0;
 
-	updated = true;
+	dirty = true;
 }
 
 XMFLOAT3X3 Object3D::getTransform()
 {
-	if (updated)
+	if (dirty)
 	{
 		update();
 	}
 
 	return transform;
 }
+
+XMFLOAT3X3 Object3D::getTransformGlobal()
+{
+	if (dirty)
+	{
+		updateGlobal();
+	}
+
+	return transformGlobal;
+}
+
+void Object3D::addChild(shared_ptr<Object3D> child)
+{
+	children.push_back(child);
+	child->parent = this;
+
+	child->dirty = true;
+}
+
+void Object3D::removeChild(shared_ptr<Object3D> child)
+{
+	
+}
+
+void Object3D::removeAllChildren()
+{
+	//children.clear();
+}
+
+bool Object3D::hasChild(shared_ptr<Object3D> child)
+{
+	return false;
+}
+
+uint32_t Object3D::getChildrenNum()
+{
+	return static_cast<uint32_t>(children.size());
+}
+
+Object3D* Object3D::getParent()
+{
+	return parent;
+}
+
 void Object3D::update()
 {
 	XMMATRIX posDX{ XMLoadFloat3x3(&pos) };
@@ -160,5 +204,31 @@ void Object3D::update()
 
 	XMStoreFloat3x3(&transformInverse, posInverseDX * scaInverseleDX * rotInverseDX);
 
-	updated = false;
+	dirty = false;
+}
+
+void Object3D::updateGlobal()
+{
+	transformGlobal = getTransform();
+
+	if (parent != nullptr)
+	{
+		XMFLOAT3X3 matParent{ parent->getTransformGlobal() };
+
+		XMMATRIX matDX{ XMLoadFloat3x3(&transformGlobal) };
+		XMMATRIX matParentDX{ XMLoadFloat3x3(&matParent) };
+
+		XMStoreFloat3x3(&transformGlobal, matDX * matParentDX);
+	}
+}
+
+void Object3D::setDirty()
+{
+	if (dirty) return;
+	
+	dirty = true;
+	for(auto& child : children)
+	{
+		child->setDirty();
+	}
 }
