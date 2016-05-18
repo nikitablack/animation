@@ -20,3 +20,12 @@ void ShaderData<ID3D11PixelShader>::createShader(ComPtr<ID3D11Device> device, Co
 		throw(runtime_error{ "Error creating pixel shader." });
 	}
 }
+
+template<>
+void ShaderData<ID3D11GeometryShader>::createShader(ComPtr<ID3D11Device> device, ComPtr<ID3DBlob> blob)
+{
+	if (FAILED(device->CreateGeometryShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, shader.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating geometry shader." });
+	}
+}

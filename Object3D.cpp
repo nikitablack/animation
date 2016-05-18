@@ -14,7 +14,7 @@ namespace
 	};
 }
 
-Object3D::Object3D(ComPtr<ID3D11Device> device, shared_ptr<MeshBase> mesh, shared_ptr<ShaderData<ID3D11VertexShader>> vertexShaderData, shared_ptr<ShaderData<ID3D11PixelShader>> pixelShaderData, bool wireframe, bool backCulling) : mesh{ mesh }, vertexShaderData{ vertexShaderData }, pixelShaderData{ pixelShaderData }
+Object3D::Object3D(ComPtr<ID3D11Device> device, shared_ptr<MeshBase> mesh, shared_ptr<ShaderData<ID3D11VertexShader>> vertexShaderData, shared_ptr<ShaderData<ID3D11PixelShader>> pixelShaderData, shared_ptr<ShaderData<ID3D11GeometryShader>> geometryShaderData, bool wireframe, bool backCulling, bool counterClockwise) : mesh{ mesh }, vertexShaderData{ vertexShaderData }, pixelShaderData{ pixelShaderData }, geometryShaderData{ geometryShaderData }
 {
 	const vector<string>& semantics = mesh->getSemantics();
 	const vector<string>& typeids = mesh->getTypeids();
@@ -42,7 +42,7 @@ Object3D::Object3D(ComPtr<ID3D11Device> device, shared_ptr<MeshBase> mesh, share
 	ZeroMemory(&desc, sizeof(desc));
 	desc.FillMode = wireframe ? D3D11_FILL_WIREFRAME : D3D11_FILL_SOLID;
 	desc.CullMode = backCulling ? D3D11_CULL_BACK : D3D11_CULL_NONE;
-	desc.FrontCounterClockwise = TRUE;
+	desc.FrontCounterClockwise = counterClockwise ? TRUE : FALSE;
 	desc.DepthBias = 0;
 	desc.DepthBiasClamp = 0.0f;
 	desc.SlopeScaledDepthBias = 0.0f;
@@ -82,6 +82,11 @@ ID3D11PixelShader* Object3D::getPixelShader()
 	return pixelShaderData->getShader();
 }
 
+ID3D11GeometryShader* Object3D::getGeometryShader()
+{
+	return geometryShaderData->getShader();
+}
+
 ID3D11InputLayout* Object3D::getInputLayout()
 {
 	return inputLayout.Get();
@@ -105,23 +110,33 @@ const vector<UINT>& Object3D::getVertexOffsets()
 
 void Object3D::setPosition(float x, float y, float z)
 {
-	pos._31 = x;
-	pos._32 = y;
-	pos._33 = z;
+	pos._41 = x;
+	pos._42 = y;
+	pos._43 = z;
 
-	posInverse._31 = -x;
-	posInverse._32 = -y;
-	posInverse._33 = -z;
+	posInverse._41 = -x;
+	posInverse._42 = -y;
+	posInverse._43 = -z;
 
-	dirty = true;
+	setDirty();
+}
+
+void Object3D::setPosition(const DirectX::XMFLOAT3& position)
+{
+	setPosition(position.x, position.y, position.z);
+}
+
+DirectX::XMFLOAT3 Object3D::getPosition()
+{
+	return{ pos._41, pos._42, pos._43 };
 }
 
 void Object3D::setRotation(float x, float y, float z)
 {
-	XMStoreFloat3x3(&rot, XMMatrixRotationRollPitchYaw(x, y, z));
-	XMStoreFloat3x3(&rotInverse, XMMatrixRotationRollPitchYaw(-x, -y, -z));
+	XMStoreFloat4x4(&rot, XMMatrixRotationRollPitchYaw(x, y, z));
+	XMStoreFloat4x4(&rotInverse, XMMatrixRotationRollPitchYaw(-x, -y, -z));
 
-	dirty = true;
+	setDirty();
 }
 
 void Object3D::setScale(float x, float y, float z)
@@ -134,10 +149,10 @@ void Object3D::setScale(float x, float y, float z)
 	scaleInverse._22 = y != 0 ? 1 / y : 0;
 	scaleInverse._33 = z != 0 ? 1 / z : 0;
 
-	dirty = true;
+	setDirty();
 }
 
-XMFLOAT3X3 Object3D::getTransform()
+XMFLOAT4X4 Object3D::getTransform()
 {
 	if (dirty)
 	{
@@ -147,7 +162,7 @@ XMFLOAT3X3 Object3D::getTransform()
 	return transform;
 }
 
-XMFLOAT3X3 Object3D::getTransformGlobal()
+XMFLOAT4X4 Object3D::getTransformGlobal()
 {
 	if (dirty)
 	{
@@ -162,7 +177,7 @@ void Object3D::addChild(shared_ptr<Object3D> child)
 	children.push_back(child);
 	child->parent = this;
 
-	child->dirty = true;
+	child->setDirty();
 }
 
 void Object3D::removeChild(shared_ptr<Object3D> child)
@@ -192,17 +207,17 @@ Object3D* Object3D::getParent()
 
 void Object3D::update()
 {
-	XMMATRIX posDX{ XMLoadFloat3x3(&pos) };
-	XMMATRIX rotDX{ XMLoadFloat3x3(&rot) };
-	XMMATRIX scaleDX{ XMLoadFloat3x3(&scale) };
+	XMMATRIX posDX{ XMLoadFloat4x4(&pos) };
+	XMMATRIX rotDX{ XMLoadFloat4x4(&rot) };
+	XMMATRIX scaleDX{ XMLoadFloat4x4(&scale) };
 	
-	XMStoreFloat3x3(&transform, rotDX * scaleDX * posDX);
+	XMStoreFloat4x4(&transform, rotDX * scaleDX * posDX);
 
-	XMMATRIX posInverseDX{ XMLoadFloat3x3(&posInverse) };
-	XMMATRIX rotInverseDX{ XMLoadFloat3x3(&rot) };
-	XMMATRIX scaInverseleDX{ XMLoadFloat3x3(&scale) };
+	XMMATRIX posInverseDX{ XMLoadFloat4x4(&posInverse) };
+	XMMATRIX rotInverseDX{ XMLoadFloat4x4(&rot) };
+	XMMATRIX scaInverseleDX{ XMLoadFloat4x4(&scale) };
 
-	XMStoreFloat3x3(&transformInverse, posInverseDX * scaInverseleDX * rotInverseDX);
+	XMStoreFloat4x4(&transformInverse, posInverseDX * scaInverseleDX * rotInverseDX);
 
 	dirty = false;
 }
@@ -213,12 +228,12 @@ void Object3D::updateGlobal()
 
 	if (parent != nullptr)
 	{
-		XMFLOAT3X3 matParent{ parent->getTransformGlobal() };
+		XMFLOAT4X4 matParent{ parent->getTransformGlobal() };
 
-		XMMATRIX matDX{ XMLoadFloat3x3(&transformGlobal) };
-		XMMATRIX matParentDX{ XMLoadFloat3x3(&matParent) };
+		XMMATRIX matDX{ XMLoadFloat4x4(&transformGlobal) };
+		XMMATRIX matParentDX{ XMLoadFloat4x4(&matParent) };
 
-		XMStoreFloat3x3(&transformGlobal, matDX * matParentDX);
+		XMStoreFloat4x4(&transformGlobal, matDX * matParentDX);
 	}
 }
 

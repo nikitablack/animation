@@ -32,6 +32,7 @@ struct VS_OUTPUT
 {
 	float4 pos: SV_POSITION;
 	float3 normal: NORMAL;
+	float2 uv: UV;
 };
 
 VS_OUTPUT main(VS_INPUT input)
@@ -39,7 +40,16 @@ VS_OUTPUT main(VS_INPUT input)
 	VS_OUTPUT output;
 	output.pos = mul(float4(input.pos, 1.0f), wvpMat);
 
-	float4 nrm = mul(float4(input.normal, 0.0f), wMat);
-	output.normal = mul(nrm, viewMat).xyz;
+	float4x4 wvMat = mul(wMat, viewMat);
+	float3 e = -normalize(mul(float4(input.pos, 1.0f), wvMat)).xyz;
+	float3 n = normalize(mul(float4(input.normal, 0.0f), wvMat)).xyz;
+
+	float3 r = reflect(e, n);
+	float m = 2.0f * sqrt(pow(r.x, 2.0f) + pow(r.y, 2.0f) + pow(r.z + 1.0f, 2.0f));
+	output.normal = mul(float4(input.normal, 0.0f), wvMat).xyz;
+	output.uv = r.xy / m + 0.5f;
+
+	/*float4 nrm = mul(float4(input.normal, 0.0f), wMat);
+	output.normal = mul(nrm, viewMat).xyz;*/
 	return output;
 }

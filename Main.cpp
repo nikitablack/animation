@@ -318,11 +318,51 @@ ComPtr<ID3D11Buffer> createConstantBufferPerObject(ID3D11Device* device)
 	return constBuffer;
 }
 
+pair<ComPtr<ID3D11Buffer>, ComPtr<ID3D11ShaderResourceView>> createStructuredBufferAndView(ID3D11Device* device, vector<XMFLOAT4X4> data, bool isDynamic)
+{
+	D3D11_BUFFER_DESC desc;
+	ZeroMemory(&desc, sizeof(desc));
+	desc.ByteWidth = static_cast<UINT>(sizeof(decltype(data)::value_type) * data.size());
+	desc.Usage = isDynamic ? D3D11_USAGE_DYNAMIC : D3D11_USAGE_DEFAULT;
+	desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	desc.CPUAccessFlags = isDynamic ? D3D11_CPU_ACCESS_WRITE : 0;
+	desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+	desc.StructureByteStride = sizeof(decltype(data)::value_type);
+
+	D3D11_SUBRESOURCE_DATA initialData;
+	initialData.pSysMem = &data;
+	initialData.SysMemPitch = 0;
+	initialData.SysMemSlicePitch = 0;
+
+	ComPtr<ID3D11Buffer> buffer;
+	if (FAILED(device->CreateBuffer(&desc, &initialData, buffer.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating structured buffer." });
+	}
+
+	D3D11_SHADER_RESOURCE_VIEW_DESC descView;
+	ZeroMemory(&descView, sizeof(descView));
+	descView.Format = DXGI_FORMAT_UNKNOWN;
+	descView.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+	descView.BufferEx.FirstElement = 0;
+	descView.BufferEx.NumElements = static_cast<UINT>(data.size());
+
+	ComPtr<ID3D11ShaderResourceView> bufferView;
+	if (FAILED(device->CreateShaderResourceView(buffer.Get(), &descView, bufferView.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating structured buffer view." });
+	}
+
+
+	return{ buffer, bufferView };
+}
+
 void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetView, ID3D11DepthStencilView* depthStencilView, IDXGISwapChain* swapChain, D3D11_VIEWPORT* viewport,
 	ID3D11Buffer* constantBuffers[4], vector<shared_ptr<Object3D>> objects, ID3D11ShaderResourceView* matcapView, ID3D11SamplerState* matcapSampler, ID3D11DepthStencilState* depthStencilState,
-	shared_ptr<Object3D> kitana)
+	shared_ptr<Object3D> kitana, shared_ptr<Object3D> kitanaSkeleton, ID3D11DepthStencilState* depthStencilState2,
+	vector<XMFLOAT4X4>& bonesInverseMatrices, vector<shared_ptr<Object3D>>& bonesObj, ID3D11ShaderResourceView* bonesInverseBufferView, ID3D11ShaderResourceView* bonesCurrBufferView, ID3D11Buffer* bonesInverseBuffer, ID3D11Buffer* bonesCurrBuffer)
 {
-	static const FLOAT clearColor[]{ 0.5f, 0.5f, 0.5f, 1.0f };
+	static const FLOAT clearColor[]{ 0.4f, 0.4f, 0.8f, 1.0f };
 	context->ClearRenderTargetView(renderTargetView, clearColor);
 	context->ClearDepthStencilView(depthStencilView, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
@@ -339,7 +379,7 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 
 	ConstantBufferPerFrame* cbPerFrameDataPtr{ static_cast<ConstantBufferPerFrame*>(mappedResource.pData) };
 
-	XMVECTOR vecCamPosition(XMVectorSet(cameraX, cameraY, -3.0f, 0.0f));
+	XMVECTOR vecCamPosition(XMVectorSet(cameraX, cameraY, -5.0f, 0.0f));
 	XMVECTOR vecCamLookAt(XMVectorSet(0.0f, 1.0f, 1.0f, 0.0f));
 	XMVECTOR vecCamUp(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
 	XMMATRIX matrixView(XMMatrixLookAtLH(vecCamPosition, vecCamLookAt, vecCamUp));
@@ -356,14 +396,15 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 	////////////////////////////////////////////////////////////////////////
 
 	context->VSSetConstantBuffers(0, 4, constantBuffers);
+	context->GSSetConstantBuffers(0, 4, constantBuffers);
 
 	context->PSSetShaderResources(0, 1, &matcapView);
 	context->PSSetSamplers(0, 1, &matcapSampler);
 	context->OMSetDepthStencilState(depthStencilState, 1);
 
-	static float rot{ 0 };
+	static float rot{ XM_PIDIV2 };
 	kitana->setRotation(0, rot, 0);
-	rot += 0.01f;
+	//rot += 0.01f;
 
 	for (shared_ptr<Object3D>& obj : objects)
 	{
@@ -376,6 +417,7 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 		context->IASetInputLayout(obj->getInputLayout());
 		context->VSSetShader(obj->getVertexShader(), nullptr, 0);
 		context->PSSetShader(obj->getPixelShader(), nullptr, 0);
+		context->GSSetShader(nullptr, nullptr, 0);
 		context->RSSetState(obj->getRasterizerState());
 
 		/////////////////////////// constant buffer per object /////////////////
@@ -388,26 +430,92 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 
 		//obj->setRotation(0, XM_PI, 0);
 		obj->setRotation(0, 0, 0);
-		XMMATRIX matrixObj(XMLoadFloat3x3(&obj->getTransformGlobal()));
+		XMMATRIX matrixObj(XMLoadFloat4x4(&obj->getTransformGlobal()));
 
 		ConstantBufferPerObject cbPerObject;
 		XMStoreFloat4x4(&cbPerObject.wvpMat, XMMatrixTranspose(matrixObj * matrixView * matrixProjection));
 
 		XMFLOAT4X4 tmp;
-		XMStoreFloat4x4(&tmp, XMMatrixTranspose(XMLoadFloat3x3(&obj->getTransformGlobal())));
+		XMStoreFloat4x4(&tmp, XMMatrixTranspose(XMLoadFloat4x4(&obj->getTransformGlobal())));
 		cbPerObjDataPtr->wMat = tmp;
 		cbPerObjDataPtr->wvpMat = cbPerObject.wvpMat;
 
 		context->Unmap(constantBuffers[3], 0);
 		////////////////////////////////////////////////////////////////////////
 
+		/////////////////////////// constant buffer per object /////////////////
+		if (FAILED(context->Map(bonesCurrBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource)))
+		{
+			throw(runtime_error{ "Error mapping shader resource" });
+		}
+
+		XMFLOAT4X4* boneDataPtr{ static_cast<XMFLOAT4X4*>(mappedResource.pData) };
+		XMFLOAT4X4 boneDataPtrTmp[212];
+
+		for (int i{ 0 }; i < bonesObj.size(); ++i)
+		{
+			XMFLOAT4X4 tmp{ bonesObj[i]->getTransformGlobal() };
+			XMMATRIX mat(XMLoadFloat4x4(&tmp));
+			
+			XMStoreFloat4x4(&boneDataPtrTmp[i], XMMatrixTranspose(mat));
+		}
+
+		memcpy(boneDataPtr, &boneDataPtrTmp, sizeof(XMFLOAT4X4) * 212);
+
+		context->Unmap(bonesCurrBuffer, 0);
+		////////////////////////////////////////////////////////////////////////
+
+		ID3D11ShaderResourceView* srvs[2]{ bonesInverseBufferView, bonesCurrBufferView };
+		context->VSSetShaderResources(0, 2, srvs);
+
 		context->DrawIndexed(obj->getNumIndices(), 0, 0);
 	}
+
+
+
+
+	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+	context->OMSetDepthStencilState(depthStencilState2, 1);
+	const vector<ID3D11Buffer*>& vertexBuffers{ kitanaSkeleton->getVertexBuffers() };
+	context->IASetVertexBuffers(0, static_cast<UINT>(vertexBuffers.size()), vertexBuffers.data(), kitanaSkeleton->getVertexStrides().data(), kitanaSkeleton->getVertexOffsets().data());
+	context->IASetInputLayout(kitanaSkeleton->getInputLayout());
+	context->VSSetShader(kitanaSkeleton->getVertexShader(), nullptr, 0);
+	context->PSSetShader(kitanaSkeleton->getPixelShader(), nullptr, 0);
+	context->GSSetShader(kitanaSkeleton->getGeometryShader(), nullptr, 0);
+	context->RSSetState(kitanaSkeleton->getRasterizerState());
+
+	/////////////////////////// constant buffer per object /////////////////
+	if (FAILED(context->Map(constantBuffers[3], 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource)))
+	{
+		throw(runtime_error{ "Error mapping constant buffer" });
+	}
+
+	ConstantBufferPerObject* cbPerObjDataPtr{ static_cast<ConstantBufferPerObject*>(mappedResource.pData) };
+
+	XMMATRIX matrixObj(XMLoadFloat4x4(&kitanaSkeleton->getTransformGlobal()));
+
+	ConstantBufferPerObject cbPerObject;
+	XMStoreFloat4x4(&cbPerObject.wvpMat, XMMatrixTranspose(matrixObj * matrixView * matrixProjection));
+
+	XMFLOAT4X4 tmp;
+	XMStoreFloat4x4(&tmp, XMMatrixTranspose(XMLoadFloat4x4(&kitanaSkeleton->getTransformGlobal())));
+	cbPerObjDataPtr->wMat = tmp;
+	cbPerObjDataPtr->wvpMat = cbPerObject.wvpMat;
+
+	context->Unmap(constantBuffers[3], 0);
+	////////////////////////////////////////////////////////////////////////
+
+	context->Draw(14, 0);
+
+
+
+
+
 
 	swapChain->Present(0, 0);
 }
 
-vector<shared_ptr<Object3D>> createKitana(ComPtr<ID3D11Device> device, shared_ptr<Object3D> kitanaObj)
+vector<shared_ptr<Object3D>> createKitana(ComPtr<ID3D11Device> device, shared_ptr<Object3D> kitanaObj, vector<shared_ptr<Object3D>>& kitanaSkeleton, vector<XMFLOAT4X4>& bonesInverseMatrices, vector<shared_ptr<Object3D>>& bonesObj)
 {
 	vector<shared_ptr<Object3D>> kitana;
 
@@ -415,6 +523,77 @@ vector<shared_ptr<Object3D>> createKitana(ComPtr<ID3D11Device> device, shared_pt
 	vector<vector<Vertex>> meshes;
 	vector<vector<uint32_t>> faces;
 	MeshAsciiParser::read("kitana", bones, meshes, faces);
+
+	vector<XMFLOAT3> bonesPositions;
+	vector<int32_t> bonesParents;
+	vector<uint32_t> bonesIndices;
+
+	for (Bone& bone : bones)
+	{
+		XMFLOAT4X4 mat;
+		bonesInverseMatrices.push_back(
+		{
+			1.0f, 0.0f, 0.0f, 0.0f,
+			0.0f, 1.0f, 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f, 0.0f,
+			-bone.pos.x, -bone.pos.y, -bone.pos.z, 1.0f
+		});
+
+		shared_ptr<Object3D> obj{ make_shared<Object3D>() };
+		bonesObj.push_back(obj);
+
+		if (bone.parent != -1)
+		{
+			shared_ptr<Object3D> par{ bonesObj[bone.parent] };
+			
+			XMFLOAT3 tmp1{ par->getPosition() };
+			XMFLOAT3 tmp2;
+			XMStoreFloat3(&tmp2, XMLoadFloat3(&bone.pos) - XMLoadFloat3(&tmp1));
+
+			obj->setPosition(tmp2);
+			par->addChild(obj);
+		}
+	}
+
+
+
+
+	static vector<string> bonesToUse{ "root hips", "pelvis", "leg left thigh", "leg left knee", "leg left ankle", "leg right thigh", "leg right knee", "leg right ankle", "spine 1", "spine 2", "spine 3", "spine 4", "head neck lower", "head neck upper" };
+
+	for (string& boneName : bonesToUse)
+	{
+		bool found{ false };
+
+		for (Bone& bone : bones)
+		{
+			if (bone.name == boneName)
+			{
+				bonesPositions.push_back(bone.pos);
+				bonesParents.push_back(bone.parent);
+				found = true;
+
+				shared_ptr<Object3D> boneObj;
+
+				break;
+			}
+		}
+
+		if (!found)
+		{
+			throw runtime_error("wrong bone name");
+		}
+	}
+
+	pair<vector<XMFLOAT3>, string> p{ bonesPositions, "POSITION" };
+	auto t = make_tuple(p);
+	shared_ptr<VertexBufferData<XMFLOAT3>> vertexBufferData{ make_shared<VertexBufferData<XMFLOAT3>>(device, t) };
+	shared_ptr<Mesh<XMFLOAT3>> mesh{ make_shared<Mesh<XMFLOAT3>>(device, vertexBufferData, vector<uint32_t>{ 0, 1, 2 }) };
+	shared_ptr<ShaderData<ID3D11VertexShader>> vertexShaderData{ make_shared<ShaderData<ID3D11VertexShader>>(device, L"PointVertexShader.cso") };
+	shared_ptr<ShaderData<ID3D11PixelShader>> pixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"PointPixelShader.cso") };
+	shared_ptr<ShaderData<ID3D11GeometryShader>> geometryShaderData{ make_shared<ShaderData<ID3D11GeometryShader>>(device, L"PointGeometryShader.cso") };
+	shared_ptr<Object3D> skeleton{ make_shared<Object3D>(device, mesh, vertexShaderData, pixelShaderData, geometryShaderData) };
+	kitanaSkeleton.push_back(skeleton);
+	kitanaObj->addChild(skeleton);
 
 	for (int i{ 0 }; i < meshes.size(); ++i)
 	{
@@ -447,7 +626,7 @@ vector<shared_ptr<Object3D>> createKitana(ComPtr<ID3D11Device> device, shared_pt
 		shared_ptr<Mesh<XMFLOAT3, XMFLOAT3, XMINT3, XMFLOAT3>> mesh{ make_shared<Mesh<XMFLOAT3, XMFLOAT3, XMINT3, XMFLOAT3>>(device, vertexBufferData, indices) };
 		shared_ptr<ShaderData<ID3D11VertexShader>> vertexShaderData{ make_shared<ShaderData<ID3D11VertexShader>>(device, L"MatcapVertexShader.cso") };
 		shared_ptr<ShaderData<ID3D11PixelShader>> pixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"MatcapPixelShader.cso") };
-		shared_ptr<Object3D> obj{ make_shared<Object3D>(device, mesh, vertexShaderData, pixelShaderData) };
+		shared_ptr<Object3D> obj{ make_shared<Object3D>(device, mesh, vertexShaderData, pixelShaderData, nullptr) };
 
 		if (i == 6 || i == 16 || i == 17 || i == 18 || i == 21 || i == 23 || i == 24 || i == 25 || i == 27)
 		{
@@ -464,8 +643,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	//MeshAsciiParser::parse("Kitana.mesh.ascii");
 	//return 0;
 
-	const LONG width{ 800 };
-	const LONG height{ 600 };
+	const LONG width{ 1280 };
+	const LONG height{ 1024 };
 	const UINT bufferCount{ 2 };
 
 	D3D11_VIEWPORT viewport;
@@ -489,17 +668,24 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	ComPtr<ID3D11ShaderResourceView> matcapView;
 	ComPtr<ID3D11SamplerState> matcapSampler;
 	ComPtr<ID3D11DepthStencilState> depthStencilState;
+	ComPtr<ID3D11DepthStencilState> depthStencilState2;
 
 	ComPtr<ID3D11Buffer> constBufferImmutable;
 	ComPtr<ID3D11Buffer> constBufferProjectionMatrix;
 	ComPtr<ID3D11Buffer> constBufferPerFrame;
 	ComPtr<ID3D11Buffer> constBufferPerObject;
+	ComPtr<ID3D11Buffer> bonesInverseBuffer;
+	ComPtr<ID3D11Buffer> bonesCurrBuffer;
+	ComPtr<ID3D11ShaderResourceView> bonesInverseBufferView;
+	ComPtr<ID3D11ShaderResourceView> bonesCurrBufferView;
 
 	shared_ptr<Object3D> plane;
 	shared_ptr<Object3D> bone;
 	shared_ptr<Object3D> kitana = make_shared<Object3D>();
 	vector<shared_ptr<Object3D>> objects;
-	vector<shared_ptr<Object3D>> bones;
+	vector<shared_ptr<Object3D>> kitanaSkeleton;
+	vector<XMFLOAT4X4> bonesInverseMatrices;
+	vector<shared_ptr<Object3D>> bonesObj;
 
 	try
 	{
@@ -507,7 +693,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		ConstantBufferProjectionMatrix cbProjectionMatrix;
 		XMStoreFloat4x4(&cbProjectionMatrix.projMat, XMMatrixTranspose(XMMatrixPerspectiveFovLH(XMConvertToRadians(45), width / height, 1.0f, 100.0f)));
 
-		CheckboardPlaneMesh checkboardPlaneMesh{ GeometryGenerator::generateCheckBoard(10.0f, 10.0f, 100, 100) };
+		CheckboardPlaneMesh checkboardPlaneMesh{ GeometryGenerator::generateCheckBoard(10.0f, 10.0f, 20, 20) };
 		BoneArmatureMesh boneArmatureMesh{ GeometryGenerator::generateBone(0.5f) };
 
 		hWnd = createWindow(width, height);
@@ -525,6 +711,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		constBufferProjectionMatrix = createConstantBufferProjectionMatrix(device.Get(), cbProjectionMatrix);
 		constBufferPerFrame = createConstantBufferPerFrame(device.Get());
 		constBufferPerObject = createConstantBufferPerObject(device.Get());
+
+		auto bonesInverseBufferAndView = createStructuredBufferAndView(device.Get(), { XMFLOAT4X4{} }, false);
+		bonesInverseBuffer = bonesInverseBufferAndView.first;
+		bonesInverseBufferView = bonesInverseBufferAndView.second;
+		auto bonesCurrBufferAndView = createStructuredBufferAndView(device.Get(), { XMFLOAT4X4{} }, true);
+		bonesCurrBuffer = bonesCurrBufferAndView.first;
+		bonesCurrBufferView = bonesCurrBufferAndView.second;
 
 		HRESULT hr = CreateDDSTextureFromFile(device.Get(), L"textures/matcap2.dds", (ID3D11Resource**)matcapTexture.ReleaseAndGetAddressOf(), matcapView.ReleaseAndGetAddressOf());
 		
@@ -563,6 +756,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		depthStencilDesc.BackFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
 		hr = device->CreateDepthStencilState(&depthStencilDesc, depthStencilState.ReleaseAndGetAddressOf());
 
+		depthStencilDesc.DepthEnable = false;
+		hr = device->CreateDepthStencilState(&depthStencilDesc, depthStencilState2.ReleaseAndGetAddressOf());
+
 		// plane
 		pair<vector<XMFLOAT3>, string> p1{ checkboardPlaneMesh.positions, "POSITION" };
 		pair<vector<XMFLOAT3>, string> p2{ checkboardPlaneMesh.normals, "NORMAL" };
@@ -572,7 +768,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		shared_ptr<Mesh<XMFLOAT3, XMFLOAT3, uint32_t>> planeMesh{ make_shared<Mesh<XMFLOAT3, XMFLOAT3, uint32_t>>(device, planeVertexBufferData, checkboardPlaneMesh.indices) };
 		shared_ptr<ShaderData<ID3D11VertexShader>> planeVertexShaderData{ make_shared<ShaderData<ID3D11VertexShader>>(device, L"PlaneVertexShader.cso") };
 		shared_ptr<ShaderData<ID3D11PixelShader>> planePixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"PlanePixelShader.cso") };
-		plane = make_shared<Object3D>(device, planeMesh, planeVertexShaderData, planePixelShaderData);
+		plane = make_shared<Object3D>(device, planeMesh, planeVertexShaderData, planePixelShaderData, nullptr, false, true, false);
 
 		//objects.push_back(plane);
 		
@@ -583,12 +779,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		shared_ptr<Mesh<XMFLOAT3>> boneMesh{ make_shared<Mesh<XMFLOAT3>>(device, boneVertexBufferData, boneArmatureMesh.indices) };
 		shared_ptr<ShaderData<ID3D11VertexShader>> boneVertexShaderData{ make_shared<ShaderData<ID3D11VertexShader>>(device, L"BoneVertexShader.cso") };
 		shared_ptr<ShaderData<ID3D11PixelShader>> bonePixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"BonePixelShader.cso") };
-		bone = make_shared<Object3D>(device, boneMesh, boneVertexShaderData, bonePixelShaderData, true, false);
+		bone = make_shared<Object3D>(device, boneMesh, boneVertexShaderData, bonePixelShaderData, nullptr, true, false);
 
 		//objects.push_back(bone);
 
 		// kitana
-		objects = createKitana(device, kitana);
+		objects = createKitana(device, kitana, kitanaSkeleton, bonesInverseMatrices, bonesObj);
+		objects.push_back(plane);
 	}
 	catch (runtime_error& err)
 	{
@@ -612,7 +809,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 				ID3D11Buffer* constantBuffers[4]{ constBufferImmutable.Get(), constBufferProjectionMatrix.Get(), constBufferPerFrame.Get(), constBufferPerObject.Get() };
 
 				render(context.Get(), renderTargetViews[presentCount % bufferCount].Get(), depthStencilView.Get(), swapChain.Get(), &viewport,
-					constantBuffers, objects, matcapView.Get(), matcapSampler.Get(), depthStencilState.Get(), kitana);
+					constantBuffers, objects, matcapView.Get(), matcapSampler.Get(), depthStencilState.Get(), kitana, kitanaSkeleton[0], depthStencilState2.Get(),
+					bonesInverseMatrices, bonesObj, bonesInverseBufferView.Get(), bonesCurrBufferView.Get(), bonesInverseBuffer.Get(), bonesCurrBuffer.Get());
 			}
 			catch (runtime_error& err)
 			{
