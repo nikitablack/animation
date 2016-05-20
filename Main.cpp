@@ -59,16 +59,16 @@ void updateResource(ID3D11DeviceContext* context, ID3D11Resource* resource, cons
 	context->Unmap(resource, 0);
 }
 
-void renderPlane(ID3D11DeviceContext* context, ID3D11Buffer* constantBuffers[4], shared_ptr<Object> plane, ShaderDataCollection planeShaderDataCollection)
+void renderPlane(ID3D11DeviceContext* context, ID3D11Buffer* constantBuffers[4], shared_ptr<Object> plane, shared_ptr<ShaderDataCollection> planeShaderDataCollection)
 {
 	const vector<ID3D11Buffer*>& vertexBuffers{ plane->getVertexBuffers() };
 
 	context->IASetVertexBuffers(0, static_cast<UINT>(vertexBuffers.size()), vertexBuffers.data(), plane->getVertexStrides().data(), plane->getVertexOffsets().data());
 	context->IASetIndexBuffer(plane->getIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
 
-	context->IASetInputLayout(planeShaderDataCollection.vertexShaderData->getInputLayout());
-	context->VSSetShader(planeShaderDataCollection.vertexShaderData->getShader(), nullptr, 0);
-	context->PSSetShader(planeShaderDataCollection.pixelShaderData->getShader(), nullptr, 0);
+	context->IASetInputLayout(planeShaderDataCollection->vertexShaderData->getInputLayout());
+	context->VSSetShader(planeShaderDataCollection->vertexShaderData->getShader(), nullptr, 0);
+	context->PSSetShader(planeShaderDataCollection->pixelShaderData->getShader(), nullptr, 0);
 	//context->RSSetState(obj->getRasterizerState());
 
 	XMVECTOR vecCamPosition(XMVectorSet(cameraX, cameraY, -5.0f, 0.0f));
@@ -92,7 +92,7 @@ void renderPlane(ID3D11DeviceContext* context, ID3D11Buffer* constantBuffers[4],
 }
 
 void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetView, ID3D11DepthStencilView* depthStencilView, IDXGISwapChain* swapChain, D3D11_VIEWPORT* viewport,
-	ID3D11Buffer* constantBuffers[4], shared_ptr<Object> plane, ShaderDataCollection planeShaderDataCollection)
+	ID3D11Buffer* constantBuffers[4], shared_ptr<Object> plane, shared_ptr<ShaderDataCollection> planeShaderDataCollection)
 {
 	static const FLOAT clearColor[]{ 0.4f, 0.4f, 0.8f, 1.0f };
 	context->ClearRenderTargetView(renderTargetView, clearColor);
@@ -292,9 +292,33 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 	swapChain->Present(0, 0);
 }*/
 
-/*vector<shared_ptr<Object3D>> createKitana(ComPtr<ID3D11Device> device, shared_ptr<Object3D> kitanaObj, vector<shared_ptr<Object3D>>& kitanaSkeleton, vector<XMFLOAT4X4>& bonesInverseMatrices, vector<shared_ptr<Object3D>>& bonesObj)
+shared_ptr<Object> createPlaneData(BufferFactory& bufferFactory)
 {
-	vector<shared_ptr<Object3D>> kitana;
+	CheckboardPlaneMesh checkboardPlaneMesh{ GeometryGenerator::generateCheckBoard(10.0f, 10.0f, 20, 20) };
+
+	BufferDataCollection planeBufferDataCollection;
+	planeBufferDataCollection.vertexBufferDatas.push_back(bufferFactory.createVertexBuffer(checkboardPlaneMesh.positions));
+	planeBufferDataCollection.vertexBufferDatas.push_back(bufferFactory.createVertexBuffer(checkboardPlaneMesh.normals));
+	planeBufferDataCollection.vertexBufferDatas.push_back(bufferFactory.createVertexBuffer(checkboardPlaneMesh.colorIds));
+	planeBufferDataCollection.indexBufferData = bufferFactory.createIndexBuffer(checkboardPlaneMesh.indices);
+
+	shared_ptr<Mesh> planeMesh{ make_shared<Mesh>(planeBufferDataCollection) };
+
+	return make_shared<Object>(planeMesh);
+}
+
+shared_ptr<ShaderDataCollection> createPlaneShaders(ShaderFactory& shaderFactory)
+{
+	shared_ptr<ShaderDataCollection> planeShaderDataCollection{ make_shared<ShaderDataCollection>() };
+	planeShaderDataCollection->vertexShaderData = shaderFactory.createVertexShader(L"PlaneVertexShader.cso");
+	planeShaderDataCollection->pixelShaderData = shaderFactory.createPixelShader(L"PlanePixelShader.cso");
+
+	return planeShaderDataCollection;
+}
+
+vector<shared_ptr<Object>> createKitanaData(BufferFactory& bufferFactory, ComPtr<ID3D11Device> device, shared_ptr<Object> kitanaObj, vector<shared_ptr<Object>>& kitanaSkeleton, vector<XMFLOAT4X4>& bonesInverseMatrices, vector<shared_ptr<Object>>& bonesObj)
+{
+	vector<shared_ptr<Object>> kitana;
 
 	vector<Bone> bones;
 	vector<vector<Vertex>> meshes;
@@ -305,7 +329,7 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 	vector<int32_t> bonesParents;
 	vector<uint32_t> bonesIndices;
 
-	for (Bone& bone : bones)
+	/*for (Bone& bone : bones)
 	{
 		XMFLOAT4X4 mat;
 		bonesInverseMatrices.push_back(
@@ -322,7 +346,7 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 		if (bone.parent != -1)
 		{
 			shared_ptr<Object3D> par{ bonesObj[bone.parent] };
-			
+
 			XMFLOAT3 tmp1{ par->getPosition() };
 			XMFLOAT3 tmp2;
 			XMStoreFloat3(&tmp2, XMLoadFloat3(&bone.pos) - XMLoadFloat3(&tmp1));
@@ -330,12 +354,12 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 			obj->setPosition(tmp2);
 			par->addChild(obj);
 		}
-	}
+	}*/
 
 
 
 
-	static vector<string> bonesToUse{ "root hips", "pelvis", "leg left thigh", "leg left knee", "leg left ankle", "leg right thigh", "leg right knee", "leg right ankle", "spine 1", "spine 2", "spine 3", "spine 4", "head neck lower", "head neck upper" };
+	/*static vector<string> bonesToUse{ "root hips", "pelvis", "leg left thigh", "leg left knee", "leg left ankle", "leg right thigh", "leg right knee", "leg right ankle", "spine 1", "spine 2", "spine 3", "spine 4", "head neck lower", "head neck upper" };
 
 	for (string& boneName : bonesToUse)
 	{
@@ -359,9 +383,9 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 		{
 			throw runtime_error("wrong bone name");
 		}
-	}
+	}*/
 
-	pair<vector<XMFLOAT3>, string> p{ bonesPositions, "POSITION" };
+	/*pair<vector<XMFLOAT3>, string> p{ bonesPositions, "POSITION" };
 	auto t = make_tuple(p);
 	shared_ptr<VertexBufferData<XMFLOAT3>> vertexBufferData{ make_shared<VertexBufferData<XMFLOAT3>>(device, t) };
 	shared_ptr<Mesh<XMFLOAT3>> mesh{ make_shared<Mesh<XMFLOAT3>>(device, vertexBufferData, vector<uint32_t>{ 0, 1, 2 }) };
@@ -370,7 +394,7 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 	shared_ptr<ShaderData<ID3D11GeometryShader>> geometryShaderData{ make_shared<ShaderData<ID3D11GeometryShader>>(device, L"PointGeometryShader.cso") };
 	shared_ptr<Object3D> skeleton{ make_shared<Object3D>(device, mesh, vertexShaderData, pixelShaderData, geometryShaderData) };
 	kitanaSkeleton.push_back(skeleton);
-	kitanaObj->addChild(skeleton);
+	kitanaObj->addChild(skeleton);*/
 
 	for (int i{ 0 }; i < meshes.size(); ++i)
 	{
@@ -394,7 +418,7 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 			indices.push_back(ind);
 		}
 
-		pair<vector<XMFLOAT3>, string> p1{ vertices, "POSITION" };
+		/*pair<vector<XMFLOAT3>, string> p1{ vertices, "POSITION" };
 		pair<vector<XMFLOAT3>, string> p2{ normals, "NORMAL" };
 		pair<vector<XMINT3>, string> p3{ bones, "BONE" };
 		pair<vector<XMFLOAT3>, string> p4{ bonesWeights, "BONE_WEIGHT" };
@@ -409,11 +433,27 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 		{
 			kitana.push_back(obj);
 			kitanaObj->addChild(obj);
-		}
+		}*/
+
+
+
+
+		CheckboardPlaneMesh checkboardPlaneMesh{ GeometryGenerator::generateCheckBoard(10.0f, 10.0f, 20, 20) };
+
+		BufferDataCollection bufferDataCollection;
+		bufferDataCollection.vertexBufferDatas.push_back(bufferFactory.createVertexBuffer(vertices));
+		bufferDataCollection.vertexBufferDatas.push_back(bufferFactory.createVertexBuffer(normals));
+		bufferDataCollection.vertexBufferDatas.push_back(bufferFactory.createVertexBuffer(bones));
+		bufferDataCollection.vertexBufferDatas.push_back(bufferFactory.createVertexBuffer(bonesWeights));
+		bufferDataCollection.indexBufferData = bufferFactory.createIndexBuffer(indices);
+
+		shared_ptr<Mesh> mesh{ make_shared<Mesh>(bufferDataCollection) };
+
+		return make_shared<Object>(mesh);
 	}
-	
+
 	return kitana;
-}*/
+}
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 {
@@ -451,10 +491,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	ComPtr<ID3D11ShaderResourceView> bonesCurrBufferView;
 
 	shared_ptr<Object> plane;
-	ShaderDataCollection planeShaderDataCollection;
-	/*shared_ptr<Object3D> plane;
-	shared_ptr<Object3D> bone;
-	shared_ptr<Object3D> kitana = make_shared<Object3D>();
+	shared_ptr<ShaderDataCollection> planeShaderDataCollection;
+	/*shared_ptr<Object3D> kitana = make_shared<Object3D>();
 	vector<shared_ptr<Object3D>> objects;
 	vector<shared_ptr<Object3D>> kitanaSkeleton;
 	vector<XMFLOAT4X4> bonesInverseMatrices;
@@ -475,10 +513,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		CheckboardPlaneMesh checkboardPlaneMesh{ GeometryGenerator::generateCheckBoard(10.0f, 10.0f, 20, 20) };
 		BoneArmatureMesh boneArmatureMesh{ GeometryGenerator::generateBone(0.5f) };
 
-		constBufferImmutable = bufferFactory.createConstantBuffer(cbImmutable);// createConstantBufferImmutable(graphics->getDevice(), cbImmutable);
-		constBufferProjectionMatrix = bufferFactory.createConstantBuffer<ConstantBufferProjectionMatrix>();// createConstantBufferProjectionMatrix(graphics->getDevice(), cbProjectionMatrix);
-		constBufferPerFrame = bufferFactory.createConstantBuffer<ConstantBufferPerFrame>(); //createConstantBufferPerFrame(graphics->getDevice());
-		constBufferPerObject = bufferFactory.createConstantBuffer<ConstantBufferPerObject>(); //createConstantBufferPerObject(graphics->getDevice());
+		constBufferImmutable = bufferFactory.createConstantBuffer(cbImmutable);
+		constBufferProjectionMatrix = bufferFactory.createConstantBuffer<ConstantBufferProjectionMatrix>();
+		constBufferPerFrame = bufferFactory.createConstantBuffer<ConstantBufferPerFrame>();
+		constBufferPerObject = bufferFactory.createConstantBuffer<ConstantBufferPerObject>();
 
 		/*auto bonesInverseBufferAndView = createStructuredBufferAndView(graphics->getDevice(), { XMFLOAT4X4{} }, false);
 		bonesInverseBuffer = bonesInverseBufferAndView.first;
@@ -528,43 +566,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 		hr = graphics->getDevice()->CreateDepthStencilState(&depthStencilDesc, depthStencilState2.ReleaseAndGetAddressOf());
 
 		// plane
-		
-
-		BufferDataCollection planeBufferDataCollection;
-		planeBufferDataCollection.vertexBufferDatas.push_back(bufferFactory.createVertexBuffer(checkboardPlaneMesh.positions));
-		planeBufferDataCollection.vertexBufferDatas.push_back(bufferFactory.createVertexBuffer(checkboardPlaneMesh.normals));
-		planeBufferDataCollection.vertexBufferDatas.push_back(bufferFactory.createVertexBuffer(checkboardPlaneMesh.colorIds));
-		planeBufferDataCollection.indexBufferData = bufferFactory.createIndexBuffer(checkboardPlaneMesh.indices);
-
-		planeShaderDataCollection.vertexShaderData = shaderFactory.createVertexShader(L"PlaneVertexShader.cso");
-		planeShaderDataCollection.pixelShaderData = shaderFactory.createPixelShader(L"PlanePixelShader.cso");
-
-		shared_ptr<Mesh> planeMesh{ make_shared<Mesh>(planeBufferDataCollection) };
-
-		plane = make_shared<Object>(planeMesh);
-
-		/*pair<vector<XMFLOAT3>, string> p1{ checkboardPlaneMesh.positions, "POSITION" };
-		pair<vector<XMFLOAT3>, string> p2{ checkboardPlaneMesh.normals, "NORMAL" };
-		pair<vector<uint32_t>, string> p3{ checkboardPlaneMesh.colorIds, "COLOR_ID" };
-		auto pt = make_tuple(p1, p2, p3);
-		shared_ptr<VertexBufferData<XMFLOAT3, XMFLOAT3, uint32_t>> planeVertexBufferData{ make_shared<VertexBufferData<XMFLOAT3, XMFLOAT3, uint32_t>>(device, pt) };
-		shared_ptr<Mesh<XMFLOAT3, XMFLOAT3, uint32_t>> planeMesh{ make_shared<Mesh<XMFLOAT3, XMFLOAT3, uint32_t>>(device, planeVertexBufferData, checkboardPlaneMesh.indices) };
-		shared_ptr<ShaderData<ID3D11VertexShader>> planeVertexShaderData{ make_shared<ShaderData<ID3D11VertexShader>>(device, L"PlaneVertexShader.cso") };
-		shared_ptr<ShaderData<ID3D11PixelShader>> planePixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"PlanePixelShader.cso") };
-		plane = make_shared<Object3D>(device, planeMesh, planeVertexShaderData, planePixelShaderData, nullptr, false, true, false);*/
-
-		//objects.push_back(plane);
-		
-		// bone
-		/*pair<vector<XMFLOAT3>, string> b1{ boneArmatureMesh.positions, "POSITION" };
-		auto bt = make_tuple(b1);
-		shared_ptr<VertexBufferData<XMFLOAT3>> boneVertexBufferData{ make_shared<VertexBufferData<XMFLOAT3>>(device, bt) };
-		shared_ptr<Mesh<XMFLOAT3>> boneMesh{ make_shared<Mesh<XMFLOAT3>>(device, boneVertexBufferData, boneArmatureMesh.indices) };
-		shared_ptr<ShaderData<ID3D11VertexShader>> boneVertexShaderData{ make_shared<ShaderData<ID3D11VertexShader>>(device, L"BoneVertexShader.cso") };
-		shared_ptr<ShaderData<ID3D11PixelShader>> bonePixelShaderData{ make_shared<ShaderData<ID3D11PixelShader>>(device, L"BonePixelShader.cso") };
-		bone = make_shared<Object3D>(device, boneMesh, boneVertexShaderData, bonePixelShaderData, nullptr, true, false);*/
-
-		//objects.push_back(bone);
+		plane = createPlaneData(bufferFactory);
+		planeShaderDataCollection = createPlaneShaders(shaderFactory);
 
 		// kitana
 		//objects = createKitana(device, kitana, kitanaSkeleton, bonesInverseMatrices, bonesObj);
