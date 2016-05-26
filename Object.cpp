@@ -4,9 +4,19 @@ using namespace std;
 using namespace Microsoft::WRL;
 using namespace DirectX;
 
-Object::Object(shared_ptr<Mesh> mesh) : mesh{ mesh }
+Object::Object()
 {
 
+}
+
+Object::Object(shared_ptr<Mesh> mesh) : mesh{ mesh }, offsets(mesh->getVertexBuffersNum(), 0)
+{
+
+}
+
+bool Object::haveMesh()
+{
+	return mesh != nullptr;
 }
 
 const vector<ID3D11Buffer*>& Object::getVertexBuffers()
@@ -31,8 +41,7 @@ const vector<UINT>& Object::getVertexStrides()
 
 const vector<UINT>& Object::getVertexOffsets()
 {
-	static vector<UINT> v(mesh->getVertexBuffersNum(), 0);
-	return v;
+	return offsets;
 }
 
 void Object::setPosition(float x, float y, float z)
@@ -122,7 +131,12 @@ bool Object::hasChild(shared_ptr<Object> child)
 	return false;
 }
 
-uint32_t Object::getChildrenNum()
+shared_ptr<Object> Object::getChildAt(uint32_t pos)
+{
+	return children[pos];
+}
+
+uint32_t Object::getNumChildren()
 {
 	return static_cast<uint32_t>(children.size());
 }
@@ -138,7 +152,7 @@ void Object::update()
 	XMMATRIX rotDX{ XMLoadFloat4x4(&rot) };
 	XMMATRIX scaleDX{ XMLoadFloat4x4(&scale) };
 
-	XMStoreFloat4x4(&transform, rotDX * scaleDX * posDX);
+	XMStoreFloat4x4(&transform, scaleDX * rotDX * posDX);
 
 	XMMATRIX posInverseDX{ XMLoadFloat4x4(&posInverse) };
 	XMMATRIX rotInverseDX{ XMLoadFloat4x4(&rot) };

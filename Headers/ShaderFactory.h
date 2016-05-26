@@ -46,6 +46,8 @@ struct ShaderDataCollection
 {
 	std::shared_ptr<VertexShaderData> vertexShaderData;
 	std::shared_ptr<ShaderData<ID3D11PixelShader>> pixelShaderData;
+	std::shared_ptr<ShaderData<ID3D11HullShader>> hullShaderData;
+	std::shared_ptr<ShaderData<ID3D11DomainShader>> domainShaderData;
 };
 
 class ShaderFactory
@@ -55,6 +57,8 @@ public:
 
 	std::shared_ptr<VertexShaderData> createVertexShader(const std::wstring& path);
 	std::shared_ptr<ShaderData<ID3D11PixelShader>> createPixelShader(const std::wstring& path);
+	std::shared_ptr<ShaderData<ID3D11HullShader>> createHullShader(const std::wstring& path);
+	std::shared_ptr<ShaderData<ID3D11DomainShader>> createDomainShader(const std::wstring& path);
 
 private:
 	Microsoft::WRL::ComPtr<ID3DBlob> getBlob(const std::wstring& path);

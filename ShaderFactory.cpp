@@ -104,6 +104,32 @@ shared_ptr<ShaderData<ID3D11PixelShader>> ShaderFactory::createPixelShader(const
 	return make_shared<ShaderData<ID3D11PixelShader>>(shader, blob);
 }
 
+shared_ptr<ShaderData<ID3D11HullShader>> ShaderFactory::createHullShader(const wstring& path)
+{
+	ComPtr<ID3DBlob> blob{ getBlob(path) };
+
+	ComPtr<ID3D11HullShader> shader;
+	if (FAILED(device->CreateHullShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, shader.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating hull shader." });
+	}
+
+	return make_shared<ShaderData<ID3D11HullShader>>(shader, blob);
+}
+
+shared_ptr<ShaderData<ID3D11DomainShader>> ShaderFactory::createDomainShader(const wstring& path)
+{
+	ComPtr<ID3DBlob> blob{ getBlob(path) };
+
+	ComPtr<ID3D11DomainShader> shader;
+	if (FAILED(device->CreateDomainShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, shader.ReleaseAndGetAddressOf())))
+	{
+		throw(runtime_error{ "Error creating domain shader." });
+	}
+
+	return make_shared<ShaderData<ID3D11DomainShader>>(shader, blob);
+}
+
 Microsoft::WRL::ComPtr<ID3DBlob> ShaderFactory::getBlob(const wstring& path)
 {
 	ComPtr<ID3DBlob> blob;

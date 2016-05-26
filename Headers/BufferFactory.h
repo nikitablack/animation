@@ -13,42 +13,6 @@ public:
 	virtual UINT getStride() = 0;
 };
 
-/*template<typename T>
-class BufferVectorData : public BufferDataBase
-{
-	friend class BufferFactory;
-
-public:
-	BufferVectorData(Microsoft::WRL::ComPtr<ID3D11Buffer> buffer, const std::vector<T>& data) : buffer{ buffer }
-	{
-		this->data = data; // todo
-	}
-
-	BufferVectorData(Microsoft::WRL::ComPtr<ID3D11Buffer> buffer) : buffer{ buffer }
-	{
-
-	}
-
-	ID3D11Buffer* getBuffer() override
-	{
-		return buffer.Get();
-	}
-
-	UINT getStride() override
-	{
-		return sizeof(T);
-	}
-
-	const std::vector<T>& getData()
-	{
-		return data;
-	}
-
-private:
-	Microsoft::WRL::ComPtr<ID3D11Buffer> buffer;
-	std::vector<T> data;
-};*/
-
 template<typename T>
 class BufferData : public BufferDataBase
 {

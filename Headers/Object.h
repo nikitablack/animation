@@ -7,7 +7,10 @@
 class Object
 {
 public:
+	Object();
 	Object(std::shared_ptr<Mesh> mesh);
+
+	bool haveMesh();
 
 	const std::vector<ID3D11Buffer*>& getVertexBuffers();
 	ID3D11Buffer* getIndexBuffer();
@@ -28,7 +31,8 @@ public:
 	void removeChild(std::shared_ptr<Object> child);
 	void removeAllChildren();
 	bool hasChild(std::shared_ptr<Object> child);
-	uint32_t getChildrenNum();
+	std::shared_ptr<Object> getChildAt(uint32_t pos);
+	uint32_t getNumChildren();
 	Object* getParent();
 
 private:
@@ -48,7 +52,8 @@ private:
 	DirectX::XMFLOAT4X4 scaleInverse{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 	DirectX::XMFLOAT4X4 transformInverse{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 
-	std::shared_ptr<Mesh> mesh;
+	std::shared_ptr<Mesh> mesh{ nullptr };
+	std::vector<UINT> offsets;
 
 	bool dirty{ false };
 
