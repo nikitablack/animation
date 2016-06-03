@@ -1,3 +1,4 @@
+#include "Headers\Dispatcher.h"
 #include "Headers\Window.h"
 #include "Headers\Graphics.h"
 #include "Headers\Mesh.h"
@@ -13,6 +14,8 @@
 #include "Headers\KitanaRenderer.h"
 #include "Headers\TeapotRenderer.h"
 #include "Headers\ObjectFactory.h"
+#include "Headers\Camera.h"
+#include "Headers\FirstPersonControl.h"
 
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -30,6 +33,17 @@ shared_ptr<KitanaRenderer> kitanaRenderer;
 vector<shared_ptr<Object>> teapot;
 shared_ptr<TeapotRenderer> teapotRenderer;
 D3D11_VIEWPORT viewport;
+shared_ptr<Window> window;
+shared_ptr<Camera> camera{ make_shared<Camera>(1280.0f / 1024.0f, XMConvertToRadians(60.0f)) };
+
+bool leftPressed{ false };
+bool rightPressed{ false };
+bool upPressed{ false };
+bool downPressed{ false };
+bool risePressed{ false };
+bool belowPressed{ false };
+bool leftMousePressed{ false };
+POINT mousePrev;
 
 template<typename T>
 void updateResource(ID3D11DeviceContext* context, ID3D11Resource* resource, const T& data)
@@ -92,85 +106,147 @@ void render(ID3D11DeviceContext* context, ID3D11RenderTargetView* renderTargetVi
 		kitanaRenderer->render(kitanaPart, constantBuffers);
 	}*/
 
-	/*for (shared_ptr<Object>& teapotPart : teapot)
-	{
-		teapotRenderer->render(teapotPart, constantBuffers);
-	}*/
-	static float rot = 0.0f;
-	rot += 0.02f;
-	teapot[0]->setRotation(0.0f, 0.0f, 0.0f + rot);
-	teapotRenderer->render(teapot[0], constantBuffers);
-	teapot[1]->setRotation(0.0f, 0.0f, 0.0f + rot);
-	teapotRenderer->render(teapot[1], constantBuffers);
-	teapot[2]->setRotation(0.0f, 0.0f, 0.0f + rot);
-	teapotRenderer->render(teapot[2], constantBuffers);
-	teapot[3]->setRotation(0.0f, 0.0f, 0.0f + rot);
-	teapotRenderer->render(teapot[3], constantBuffers);
-	teapot[4]->setRotation(0.0f, 0.0f, 0.0f + rot);
-	teapotRenderer->render(teapot[4], constantBuffers);
-
-	teapot[0]->setRotation(0.0f, 0.0f, XM_PIDIV2 + rot);
-	teapotRenderer->render(teapot[0], constantBuffers);
-	teapot[1]->setRotation(0.0f, 0.0f, XM_PIDIV2 + rot);
-	teapotRenderer->render(teapot[1], constantBuffers);
-	teapot[2]->setRotation(0.0f, 0.0f, XM_PIDIV2 + rot);
-	teapotRenderer->render(teapot[2], constantBuffers);
-	teapot[3]->setRotation(0.0f, 0.0f, XM_PIDIV2 + rot);
-	teapotRenderer->render(teapot[3], constantBuffers);
-	teapot[4]->setRotation(0.0f, 0.0f, XM_PIDIV2 + rot);
-	teapotRenderer->render(teapot[4], constantBuffers);
-
-	teapot[0]->setRotation(0.0f, 0.0f, XM_PI + rot);
-	teapotRenderer->render(teapot[0], constantBuffers);
-	teapot[1]->setRotation(0.0f, 0.0f, XM_PI + rot);
-	teapotRenderer->render(teapot[1], constantBuffers);
-	teapot[2]->setRotation(0.0f, 0.0f, XM_PI + rot);
-	teapotRenderer->render(teapot[2], constantBuffers);
-	teapot[3]->setRotation(0.0f, 0.0f, XM_PI + rot);
-	teapotRenderer->render(teapot[3], constantBuffers);
-	teapot[4]->setRotation(0.0f, 0.0f, XM_PI + rot);
-	teapotRenderer->render(teapot[4], constantBuffers);
-
-	teapot[0]->setRotation(0.0f, 0.0f, -XM_PIDIV2 + rot);
-	teapotRenderer->render(teapot[0], constantBuffers);
-	teapot[1]->setRotation(0.0f, 0.0f, -XM_PIDIV2 + rot);
-	teapotRenderer->render(teapot[1], constantBuffers);
-	teapot[2]->setRotation(0.0f, 0.0f, -XM_PIDIV2 + rot);
-	teapotRenderer->render(teapot[2], constantBuffers);
-	teapot[3]->setRotation(0.0f, 0.0f, -XM_PIDIV2 + rot);
-	teapotRenderer->render(teapot[3], constantBuffers);
-	teapot[4]->setRotation(0.0f, 0.0f, -XM_PIDIV2 + rot);
-	teapotRenderer->render(teapot[4], constantBuffers);
-
-	teapot[5]->setScale(1.0f, 1.0f, 1.0f);
-	teapot[5]->setRotation(0.0f, 0.0f, 0 + rot);
-	teapotRenderer->render(teapot[5], constantBuffers);
-	teapot[6]->setScale(1.0f, 1.0f, 1.0f);
-	teapot[6]->setRotation(0.0f, 0.0f, 0 + rot);
-	teapotRenderer->render(teapot[6], constantBuffers);
-
-	teapot[5]->setScale(1.0f, -1.0f, 1.0f);
-	teapot[5]->setRotation(0.0f, 0.0f, 0 + rot);
-	teapotRenderer->render(teapot[5], constantBuffers);
-	teapot[6]->setScale(1.0f, -1.0, 1.0f);
-	teapot[6]->setRotation(0.0f, 0.0f, 0 + rot);
-	teapotRenderer->render(teapot[6], constantBuffers);
-
-	teapot[7]->setScale(1.0f, 1.0f, 1.0f);
-	teapot[7]->setRotation(0.0f, 0.0f, 0 + rot);
-	teapotRenderer->render(teapot[7], constantBuffers);
-	teapot[8]->setScale(1.0f, 1.0f, 1.0f);
-	teapot[8]->setRotation(0.0f, 0.0f, 0 + rot);
-	teapotRenderer->render(teapot[8], constantBuffers);
-
-	teapot[7]->setScale(1.0f, -1.0f, 1.0f);
-	teapot[7]->setRotation(0.0f, 0.0f, 0 + rot);
-	teapotRenderer->render(teapot[7], constantBuffers);
-	teapot[8]->setScale(1.0f, -1.0f, 1.0f);
-	teapot[8]->setRotation(0.0f, 0.0f, 0 + rot);
-	teapotRenderer->render(teapot[8], constantBuffers);
+	teapotRenderer->render(teapot, constantBuffers, camera);
 
 	swapChain->Present(0, 0);
+}
+
+XMFLOAT4 transformVector(const XMFLOAT4& v, const XMFLOAT4X4& m)
+{
+	XMMATRIX mDX(XMLoadFloat4x4(&m));
+	XMVECTOR vDX(XMLoadFloat4(&v));
+
+	XMFLOAT4 t;
+	XMStoreFloat4(&t, XMVector4Transform(vDX, mDX));
+
+	return t;
+}
+
+void onKeyDown(Key key)
+{
+	switch (key)
+	{
+	case Key::A:
+		leftPressed = true;
+		break;
+	case Key::W:
+		upPressed = true;
+		break;
+	case Key::D:
+		rightPressed = true;
+		break;
+	case Key::S:
+		downPressed = true;
+		break;
+	case Key::Q:
+		risePressed = true;
+		break;
+	case Key::E:
+		belowPressed = true;
+		break;
+	}
+}
+
+void onKeyUp(Key key)
+{
+	switch (key)
+	{
+	case Key::A:
+		leftPressed = false;
+		break;
+	case Key::W:
+		upPressed = false;
+		break;
+	case Key::D:
+		rightPressed = false;
+		break;
+	case Key::S:
+		downPressed = false;
+		break;
+	case Key::Q:
+		risePressed = false;
+		break;
+	case Key::E:
+		belowPressed = false;
+		break;
+	}
+}
+
+void onMouseUp(int mouseX, int mouseY)
+{
+	leftMousePressed = false;
+}
+
+void onMouseDown(int mouseX, int mouseY)
+{
+	leftMousePressed = true;
+	mousePrev.x = mouseX;
+	mousePrev.y = mouseY;
+}
+
+void updateInput()
+{
+	if (leftPressed)
+	{
+		XMFLOAT4 v{ transformVector(XMFLOAT4{ -0.1f, 0.0f, 0.0f, 0.0f }, camera->getTransformGlobal()) };
+		camera->addPosition(v.x, v.y, v.z);
+	}
+
+	if (upPressed)
+	{
+		XMFLOAT4 v{ transformVector(XMFLOAT4{ 0.0f, 0.0f, 0.1f, 0.0f }, camera->getTransformGlobal()) };
+		camera->addPosition(v.x, v.y, v.z);
+	}
+
+	if (rightPressed)
+	{
+		XMFLOAT4 v{ transformVector(XMFLOAT4{ 0.1f, 0.0f, 0.0f, 0.0f }, camera->getTransformGlobal()) };
+		camera->addPosition(v.x, v.y, v.z);
+	}
+
+	if (downPressed)
+	{
+		XMFLOAT4 v{ transformVector(XMFLOAT4{ 0.0f, 0.0f, -0.1f, 0.0f }, camera->getTransformGlobal()) };
+		camera->addPosition(v.x, v.y, v.z);
+	}
+
+	if (risePressed)
+	{
+		XMFLOAT4 v{ transformVector(XMFLOAT4{ 0.0f, 0.1f, 0.0f, 0.0f }, camera->getTransformGlobal()) };
+		camera->addPosition(v.x, v.y, v.z);
+	}
+
+	if (belowPressed)
+	{
+		XMFLOAT4 v{ transformVector(XMFLOAT4{ 0.0f, -0.1f, 0.0f, 0.0f }, camera->getTransformGlobal()) };
+		camera->addPosition(v.x, v.y, v.z);
+	}
+
+	if (leftMousePressed)
+	{
+		POINT p = window->getMousePosition();
+
+		int dx{ p.x - mousePrev.x };
+		int dy{ p.y - mousePrev.y };
+
+		mousePrev.x = p.x;
+		mousePrev.y = p.y;
+
+		int dSqr{ dx * dx + dy * dy };
+
+		if (dSqr > 0)
+		{
+			XMFLOAT3 v{ static_cast<float>(dy), static_cast<FLOAT>(dx), 0.0f };
+			XMStoreFloat3(&v, XMVector3Normalize(XMLoadFloat3(&v)));
+
+			XMMATRIX mDX(XMLoadFloat4x4(&camera->getTransformGlobal()));
+			XMVECTOR vDX(XMLoadFloat3(&v));
+
+			XMStoreFloat3(&v, XMVector4Transform(vDX, mDX));
+
+			camera->addRotation(v, static_cast<float>(dSqr) * 0.00001f);
+		}
+	}
 }
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
@@ -189,7 +265,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	viewport.MinDepth = 0.0f;
 	viewport.MaxDepth = 1.0f;
 
-	shared_ptr<Window> window;
 	shared_ptr<Graphics> graphics;
 	shared_ptr<BufferDataBase> constBufferImmutable;
 	shared_ptr<BufferDataBase> constBufferProjectionMatrix;
@@ -199,10 +274,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 	shared_ptr<BufferFactory> bufferFactory;
 	shared_ptr<ObjectFactory> objectFactory;
 
+	camera->setPosition(0.0f, 10.0f, 5.0f);
+	camera->setRotation(XMConvertToRadians(110), 0.0f, 0.0f);
+
 	try
 	{
 		window = make_shared<Window>(width, height);
 		graphics = make_shared<Graphics>(window->getHandle(), bufferCount);
+
+		window->onKeyDown.add<&onKeyDown>("onKeyDown");
+		window->onKeyUp.add<&onKeyUp>("onKeyUp");
+		window->onLeftMouseDown.add<&onMouseDown>("onMouseDown");
+		window->onLeftMouseUp.add<&onMouseUp>("onMouseUp");
 
 		shaderFactory = make_shared<ShaderFactory>(graphics->getDeviceCom());
 		bufferFactory = make_shared<BufferFactory>(graphics->getDeviceCom());
@@ -256,6 +339,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int)
 				UINT presentCount;
 				graphics->getSwapChain()->GetLastPresentCount(&presentCount);
 
+				updateInput();
 				render(graphics->getContext(), graphics->getRenderTargetView(presentCount % bufferCount), graphics->getDepthStencilView(), graphics->getSwapChain());
 			}
 			catch (runtime_error& err)

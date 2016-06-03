@@ -2,6 +2,7 @@
 
 #include "BaseRenderer.h"
 #include "ConstantBuffers.h"
+#include "Camera.h"
 
 class TeapotRenderer : public BaseRenderer
 {
@@ -33,16 +34,9 @@ public:
 		shaderData->domainShaderData = shaderFactory->createDomainShader(L"TeapotDomainShader.cso");
 	}
 
-	void render(std::shared_ptr<Object> obj, ID3D11Buffer* constantBuffers[4])
+	void render(const std::vector<std::shared_ptr<Object>>& teapot, ID3D11Buffer* constantBuffers[4], std::shared_ptr<Camera> camera)
 	{
 		ID3D11DeviceContext* context{ graphics->getContext() };
-
-		context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_16_CONTROL_POINT_PATCHLIST);
-
-		const vector<ID3D11Buffer*>& vertexBuffers{ obj->getVertexBuffers() };
-
-		context->IASetVertexBuffers(0, static_cast<UINT>(vertexBuffers.size()), vertexBuffers.data(), obj->getVertexStrides().data(), obj->getVertexOffsets().data());
-		context->IASetIndexBuffer(obj->getIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
 
 		context->IASetInputLayout(shaderData->vertexShaderData->getInputLayout());
 		context->VSSetShader(shaderData->vertexShaderData->getShader(), nullptr, 0);
@@ -51,20 +45,58 @@ public:
 		context->DSSetShader(shaderData->domainShaderData->getShader(), nullptr, 0);
 		context->RSSetState(rasterizerState.Get());
 
-		XMVECTOR vecCamPosition(XMVectorSet(0.0f, -10.0f, 5.0f, 0.0f));
-		XMVECTOR vecCamLookAt(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f));
-		XMVECTOR vecCamUp(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f));
-		XMMATRIX matrixView(XMMatrixLookAtLH(vecCamPosition, vecCamLookAt, vecCamUp));
-		XMMATRIX matrixProjection(XMMatrixPerspectiveFovLH(XMConvertToRadians(45), 800.0f / 600.0f, 1.0f, 100.0f));
+		context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_16_CONTROL_POINT_PATCHLIST);
 
-		/*static float rot{ 0.0f };
-		obj->setRotation(0, rot, 0);
-		rot += 0.01f;*/
-		XMMATRIX matrixObj(XMLoadFloat4x4(&obj->getTransformGlobal()));
+		static float rotZ = 0.0f;
+		rotZ += 0.02f;
+
+		drawBodyPart(context, teapot[0], constantBuffers, camera, XMFLOAT3{ 0.0f, 0.0f, rotZ });
+		drawBodyPart(context, teapot[1], constantBuffers, camera, XMFLOAT3{ 0.0f, 0.0f, rotZ });
+		drawBodyPart(context, teapot[2], constantBuffers, camera, XMFLOAT3{ 0.0f, 0.0f, rotZ });
+		drawBodyPart(context, teapot[3], constantBuffers, camera, XMFLOAT3{ 0.0f, 0.0f, rotZ });
+		drawBodyPart(context, teapot[4], constantBuffers, camera, XMFLOAT3{ 0.0f, 0.0f, rotZ });
+		drawSpoutOrHandle(context, teapot[5], constantBuffers, camera, XMFLOAT3{ 0.0f, 0.0f, rotZ });
+		drawSpoutOrHandle(context, teapot[6], constantBuffers, camera, XMFLOAT3{ 0.0f, 0.0f, rotZ });
+		drawSpoutOrHandle(context, teapot[7], constantBuffers, camera, XMFLOAT3{ 0.0f, 0.0f, rotZ });
+		drawSpoutOrHandle(context, teapot[8], constantBuffers, camera, XMFLOAT3{ 0.0f, 0.0f, rotZ });
+	}
+
+private:
+	void drawBodyPart(ID3D11DeviceContext* context, std::shared_ptr<Object> obj, ID3D11Buffer* constantBuffers[4], std::shared_ptr<Camera> camera, XMFLOAT3 rotation)
+	{
+		const vector<ID3D11Buffer*>& vertexBuffers{ obj->getVertexBuffers() };
+
+		context->IASetVertexBuffers(0, static_cast<UINT>(vertexBuffers.size()), vertexBuffers.data(), obj->getVertexStrides().data(), obj->getVertexOffsets().data());
+		context->IASetIndexBuffer(obj->getIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
+
+		drawObjectWithScaleAndRotation(context, obj, constantBuffers, camera, XMFLOAT3{ rotation.x, rotation.y, 0.0f + rotation.z });
+		drawObjectWithScaleAndRotation(context, obj, constantBuffers, camera, XMFLOAT3{ rotation.x, rotation.y, XM_PIDIV2 + rotation.z });
+		drawObjectWithScaleAndRotation(context, obj, constantBuffers, camera, XMFLOAT3{ rotation.x, rotation.y, XM_PI + rotation.z });
+		drawObjectWithScaleAndRotation(context, obj, constantBuffers, camera, XMFLOAT3{ rotation.x, rotation.y, -XM_PIDIV2 + rotation.z });
+	}
+
+	void drawSpoutOrHandle(ID3D11DeviceContext* context, std::shared_ptr<Object> obj, ID3D11Buffer* constantBuffers[4], std::shared_ptr<Camera> camera, XMFLOAT3 rotation)
+	{
+		const vector<ID3D11Buffer*>& vertexBuffers{ obj->getVertexBuffers() };
+
+		context->IASetVertexBuffers(0, static_cast<UINT>(vertexBuffers.size()), vertexBuffers.data(), obj->getVertexStrides().data(), obj->getVertexOffsets().data());
+		context->IASetIndexBuffer(obj->getIndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
+
+		drawObjectWithScaleAndRotation(context, obj, constantBuffers, camera, XMFLOAT3{ rotation.x, rotation.y, rotation.z });
+		drawObjectWithScaleAndRotation(context, obj, constantBuffers, camera, XMFLOAT3{ rotation.x, rotation.y, rotation.z }, XMFLOAT3{ 1.0f, -1.0f, 1.0f });
+	}
+
+	void drawObjectWithScaleAndRotation(ID3D11DeviceContext* context, std::shared_ptr<Object> obj, ID3D11Buffer* constantBuffers[4], std::shared_ptr<Camera> camera, XMFLOAT3 rotation, XMFLOAT3 scale = XMFLOAT3{ 1.0f, 1.0f, 1.0f })
+	{
+		obj->setScale(scale.x, scale.y, scale.z);
+		obj->setRotation(rotation.x, rotation.y, rotation.z);
+
+		XMMATRIX matrixObjDX(XMLoadFloat4x4(&obj->getTransformGlobal()));
+		XMMATRIX viewProjectionDX(XMLoadFloat4x4(&camera->getViewProjectionMatrix()));
 
 		ConstantBufferPerObject cbPerObject;
-		XMStoreFloat4x4(&cbPerObject.wMat, XMMatrixTranspose(matrixObj));
-		XMStoreFloat4x4(&cbPerObject.wvpMat, XMMatrixTranspose(matrixObj * matrixView * matrixProjection));
+		XMStoreFloat4x4(&cbPerObject.wMat, matrixObjDX);
+		XMStoreFloat4x4(&cbPerObject.wvpMat, matrixObjDX * viewProjectionDX);
 
 		updateResource(constantBuffers[3], cbPerObject);
 

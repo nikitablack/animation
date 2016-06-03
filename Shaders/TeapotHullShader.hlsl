@@ -44,7 +44,7 @@ HS_CONSTANT_DATA_OUTPUT CalcHSPatchConstants(InputPatch<HS_CONTROL_POINT_INPUT, 
 {
 	HS_CONSTANT_DATA_OUTPUT Output;
 
-	float factor = 1.0f;
+	float factor = 8.0f;
 
 	Output.EdgeTessFactor[0] = factor;
 	Output.EdgeTessFactor[1] = factor;

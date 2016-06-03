@@ -83,7 +83,6 @@ public:
 		std::vector<std::shared_ptr<Object>> teapot;
 
 		TeapotData teapotData;
-		CheckboardPlaneMesh checkboardPlaneMesh{ GeometryGenerator::generateCheckBoard(10.0f, 10.0f, 20, 20) };
 
 		for (auto& patch : teapotData.patches)
 		{

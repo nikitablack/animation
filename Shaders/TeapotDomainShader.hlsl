@@ -16,8 +16,8 @@ cbuffer ConstantBufferPerFrame : register(b2)
 
 cbuffer ConstantBufferPerObj : register(b3)
 {
-	float4x4 wvpMat;
-	float4x4 wMat;
+	row_major float4x4 wvpMat;
+	row_major float4x4 wMat;
 };
 
 struct DS_OUTPUT
